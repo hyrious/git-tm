@@ -1,0 +1,247 @@
+@import "@vscode/codicons/dist/codicon.css";
+
+:root {
+  --accent: #000;
+  --foreground: #3B3B3B;
+  --background: #FFFFFF;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent: #fff;
+    --foreground: #CCCCCC;
+    --background: #1F1F1F;
+  }
+}
+
+html {
+  height: 100%;
+  box-sizing: border-box;
+  --gray: color-mix(in srgb, var(--foreground) 75%, var(--background));
+  --dim: color-mix(in srgb, var(--foreground) 50%, var(--background));
+  --tag: color-mix(in srgb, var(--foreground) 20%, var(--background));
+  --border: color-mix(in srgb, var(--foreground) 15%, var(--background));
+  --hover: color-mix(in srgb, var(--foreground) 10%, var(--background));
+  --section: color-mix(in srgb, var(--foreground) 5%, var(--background));
+  --selected: color-mix(in srgb, var(--foreground) 12%, var(--background));
+  --track: var(--foreground);
+  --track-0: var(--cyanish);
+  --track-1: var(--bluish);
+  --track-2: var(--purplish);
+  --track-3: var(--pinkish);
+  --track-4: var(--redish);
+  --track-5: var(--orangish);
+  --track-6: var(--yellowish);
+  --track-7: var(--greenish);
+}
+
+*, *:before, *:after {
+  box-sizing: inherit;
+}
+
+[tabindex]:focus {
+	outline: 1px solid -webkit-focus-ring-color;
+	outline-offset: -1px;
+}
+
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.4;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+  color: var(--foreground);
+  background-color: var(--background);
+  tab-size: 4;
+}
+
+i {
+  display: inline-block;
+  pointer-events: none;
+}
+
+.titlebar, .content, .statusbar {
+  position: absolute;
+  width: 100%;
+}
+
+.sidebar, .editors, .aux-sidebar {
+  position: absolute;
+  height: 100%;
+}
+
+.sidebar, .editors {
+  display: flex;
+  flex-flow: column nowrap;
+}
+.files-header, .editors-header {
+  flex: none;
+  height: 22px;
+  line-height: 22px;
+  padding: 0 4px 0 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: bold;
+}
+.files, .pre {
+  flex: 1;
+}
+.file {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  padding: 0 4px 0 8px;
+}
+.file:hover {
+  background: var(--hover);
+}
+.depth {
+  flex: none;
+  display: inline-block;
+  height: 16px;
+}
+.arrow {
+  flex: none;
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+}
+.filename {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.filename > i {
+  vertical-align: text-bottom;
+  padding-right: 4px;
+}
+
+.pre {
+  margin: 0;
+  padding: 5px 8px;
+  overflow: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+  font-size: 12px;
+  white-space: pre;
+}
+.pre:focus-visible {
+  outline: none;
+}
+.binary {
+  align-content: center;
+  text-align: center;
+}
+.shiki span {
+  color: var(--shiki-light, inherit);
+}
+@media (prefers-color-scheme: dark) {
+  .shiki span {
+    color: var(--shiki-dark, inherit);
+  }
+}
+code {
+  counter-reset: lino;
+  counter-increment: lino 0;
+}
+code .line::before {
+  content: counter(lino);
+  counter-increment: lino;
+  width: 32px;
+  margin-right: 20px;
+  display: inline-block;
+  text-align: right;
+  color: var(--dim);
+}
+
+.commits {
+  height: 100%;
+  font-size: 12px;
+}
+.commit {
+  display: flex;
+  overflow: hidden;
+  padding-left: 5px;
+}
+.commit:hover {
+  background: var(--hover);
+}
+.tracks {
+  flex: none;
+  display: flex;
+}
+.track {
+  flex: none;
+  width: 12px;
+}
+.commit-content {
+  flex: 1;
+  line-height: 20px;
+  padding-top: 5px;
+  overflow: hidden;
+}
+.message-wrapper {
+  display: flex;
+  padding: 0 5px;
+}
+.message {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.changes {
+  flex: none;
+  align-self: center;
+  line-height: 1;
+  padding: 0.25em;
+  background: var(--border);
+  border-radius: 5px;
+}
+.changes:empty {
+  display: none;
+}
+.footer {
+  display: flex;
+  padding: 0 5px;
+  color: var(--gray);
+}
+.author {
+  flex: 1;
+  font-style: italic;
+}
+.date {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  display: none;
+}
+.refs {
+  flex: none;
+  display: flex;
+  font-size: 11px;
+}
+.refs:empty {
+  display: none;
+}
+.footer:has(.refs:empty) .date {
+  display: block;
+}
+.ref {
+  align-self: center;
+  display: inline-block;
+  line-height: 1;
+  margin-left: 4px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  background: var(--tag);
+}
+.head {
+  background: var(--track-0);
+  color: var(--background);
+}

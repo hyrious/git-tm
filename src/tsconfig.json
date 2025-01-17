@@ -1,0 +1,6 @@
+{
+  "extends": "@hyrious/configs/tsconfig.casual.json",
+  "compilerOptions": {
+    "types": ["node"]
+  }
+}

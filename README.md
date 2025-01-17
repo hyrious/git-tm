@@ -5,7 +5,7 @@ Git Time-Machine. View files in a repository at a specific time.
 ## Usage
 
 ```console
-$ npx @hyrious/git-tm path/to/repo
+$ npx @hyrious/git-tm [path/to/repo]
 serving http://localhost:7000
 ```
 
