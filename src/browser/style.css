@@ -215,6 +215,9 @@ code .line::before {
 .author {
   flex: 1;
   font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .date {
   flex: none;
