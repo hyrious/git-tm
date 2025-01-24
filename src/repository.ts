@@ -309,7 +309,7 @@ export function makeTree(elements: LsTreeElement[]): Tree<LsTreeElement> {
   const tree: Tree<LsTreeElement> = { children: [], collapsible: false, collapsed: false };
 
   for (const item of elements) {
-    if (item.type !== 'blob') {
+    if (item.type === 'tree') {
       throw new Error('Unable to construct the files tree because "recursive" is not enabled.');
     }
 

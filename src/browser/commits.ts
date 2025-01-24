@@ -16,6 +16,7 @@ type Track = {
   readonly depth: number;
   readonly incomming: readonly number[];
   readonly outgoing: readonly number[];
+  readonly active: boolean;
 };
 
 type WritableTrack = {
@@ -23,6 +24,7 @@ type WritableTrack = {
   depth: number;
   incomming: number[];
   outgoing: number[];
+  active: boolean;
 };
 
 const PlaceHolder = Symbol.for('PlaceHolder');
@@ -31,7 +33,7 @@ type PlaceHolder = typeof PlaceHolder;
 type Item = {
   readonly index: number;
   readonly commit: Commit;
-  readonly tracks: readonly Track[];
+  readonly tracks: readonly (Track | null)[];
 } | PlaceHolder;
 
 type Template = {
@@ -76,7 +78,7 @@ export class Commits extends Widget implements ItemRenderer<Item, Template> {
 
       for (; commits[i]; i++) {
         const commit = commits[i]!;
-        const tracks: Track[] = [];
+        const tracks: (WritableTrack | null)[] = [];
 
         const nextTracks: (string | null)[] = [];
         let merged: WritableTrack | undefined; // Only one merge item could be created for each commit.
@@ -89,34 +91,41 @@ export class Commits extends Widget implements ItemRenderer<Item, Template> {
                 nextTracks[j] = commit.parents[k++] || null;
                 if (j === 0 && firstTrackInvisible) {
                   firstTrackInvisible = false;
-                  merged = { visible: 1, depth: j, incomming: [j], outgoing: [j] };
+                  merged = { visible: 1, depth: j, incomming: [j], outgoing: [j], active: true };
                 } else {
-                  merged = { visible: 2, depth: j, incomming: [j], outgoing: [j] };
+                  merged = { visible: firstTrackInvisible ? 0 : 2, depth: j, incomming: [j], outgoing: [j], active: true };
                 }
-                tracks.push(merged);
+                tracks[j] = merged;
               } else {
                 nextTracks[j] = null;
                 merged.incomming.push(j);
               }
             } else {
               nextTracks[j] = parent;
-              tracks.push({ visible: 2, depth: j, incomming: [j], outgoing: [j] });
+              tracks[j] = { visible: j === 0 && firstTrackInvisible ? 0 : 2, depth: j, incomming: [j], outgoing: [j], active: false };
             }
           } else {
             nextTracks[j] = null;
           }
         }
         while (commit.parents[k]) {
-          let index = nextTracks.indexOf(null);
-          if (index < 0) index = nextTracks.length;
-          nextTracks[index] = commit.parents[k++];
-          tracks.push({ visible: 2, depth: index, incomming: [], outgoing: [index] });
+          let exist = currentTracks.indexOf(commit.parents[k]);
+          if (exist >= 0) {
+            merged?.outgoing.push(exist);
+            nextTracks[exist] = commit.parents[k++];
+          } else {
+            let index = nextTracks.indexOf(null);
+            if (index < 0) index = nextTracks.length;
+            nextTracks[index] = commit.parents[k++];
+            if (merged) {
+              merged.outgoing.push(index);
+            } else {
+              merged = tracks[index] = { visible: 2, depth: index, incomming: [], outgoing: [index], active: true };
+            }
+          }
         }
         currentTracks = nextTracks;
 
-        if (firstTrackInvisible && tracks[0]) {
-          (tracks[0] as WritableTrack).visible = 0;
-        }
         items.set(i, { index: i, commit, tracks });
       }
     }));
@@ -170,10 +179,11 @@ export class Commits extends Widget implements ItemRenderer<Item, Template> {
   }
 }
 
-function _renderTracks($tracks: HTMLElement, tracks: readonly Track[]): void {
+function _renderTracks($tracks: HTMLElement, tracks: readonly (Track | null)[]): void {
   clearElement($tracks);
-  let maxDepth = 0;
+  let maxDepth = tracks.length - 1;
   for (const track of tracks) {
+    if (!track) continue;
     if (maxDepth < track.depth) maxDepth = track.depth;
     for (const incomming of track.incomming) {
       if (maxDepth < incomming) maxDepth = incomming;
@@ -185,18 +195,19 @@ function _renderTracks($tracks: HTMLElement, tracks: readonly Track[]): void {
   $tracks.style.width = `${(maxDepth + 1) * 12}px`;
   for (const track of tracks) {
     const $track = appendChild($tracks, $('.track'));
-    _renderTrack($track, track, maxDepth);
+    track && _renderTrack($track, track, maxDepth);
   }
 }
 
-function _renderTrack($track: HTMLElement, { visible, depth, incomming, outgoing }: Track, maxDepth: number): void {
-  const maxWidth = (maxDepth - depth + 1) * 12;
+function _renderTrack($track: HTMLElement, { visible, depth, incomming, outgoing, active }: Track, maxDepth: number): void {
+  const maxWidth = (maxDepth + 1) * 12;
   const svg = appendChild($track, svgElement('svg'));
   svg.setAttribute('width', `${maxWidth}`);
   svg.setAttribute('height', '50');
-  svg.setAttribute('viewBox', `0 0 ${maxWidth} 50`);
+  svg.setAttribute('viewBox', `${-depth * 12} 0 ${maxWidth} 50`);
   svg.setAttribute('fill', 'none');
   svg.setAttribute('stroke', 'var(--track)');
+  svg.setAttribute('style', `margin-left: ${-depth * 12}px`);
 
   const mid = 6;
   for (const i of incomming) {
@@ -216,7 +227,7 @@ function _renderTrack($track: HTMLElement, { visible, depth, incomming, outgoing
     if (!visible) path.setAttribute('stroke-dasharray', '4');
   }
 
-  if (visible) {
+  if (visible && active) {
     const circle = appendChild(svg, svgElement('circle'));
     circle.setAttribute('cx', `${mid}`);
     circle.setAttribute('cy', '25');
