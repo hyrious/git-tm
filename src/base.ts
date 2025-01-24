@@ -1,4 +1,5 @@
 
+export const MAX_TRACKS = 6;
 export const STEP = 50;
 
 export type Writable<T> = { -readonly [P in keyof T]: T[P] };
@@ -26,8 +27,3 @@ export function inertFilterMap<T, U = T>(
 
   return result || (array as unknown as U[]);
 }
-
-export const colorTables = [
-  ['#2977B1', '#FC802D', '#34A13A', '#D3282F', '#9366BA'],
-  ['#8B564C', '#E177C0', '#7F7F7F', '#BBBE3D', '#2EBECD']
-];

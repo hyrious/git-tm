@@ -25,14 +25,6 @@ html {
   --section: color-mix(in srgb, var(--foreground) 5%, var(--background));
   --selected: color-mix(in srgb, var(--foreground) 12%, var(--background));
   --track: var(--foreground);
-  --track-0: var(--cyanish);
-  --track-1: var(--bluish);
-  --track-2: var(--purplish);
-  --track-3: var(--pinkish);
-  --track-4: var(--redish);
-  --track-5: var(--orangish);
-  --track-6: var(--yellowish);
-  --track-7: var(--greenish);
 }
 
 *, *:before, *:after {
@@ -246,5 +238,9 @@ code .line::before {
 }
 .head {
   background: var(--track-0);
+  color: var(--background);
+}
+.tag {
+  background: var(--track-4);
   color: var(--background);
 }

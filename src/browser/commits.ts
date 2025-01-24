@@ -1,5 +1,5 @@
 import type { DisposableType } from '@wopjs/disposable';
-import type { Writable } from '../base';
+import { MAX_TRACKS, type Writable } from '../base';
 import type { Commit, CommitShortStat, Ref, RefType } from '../repository';
 
 import { noop } from '@wopjs/cast';
@@ -215,7 +215,7 @@ function _renderTrack($track: HTMLElement, { visible, depth, incomming, outgoing
     const start = (i - depth) * 12 + 6;
     // Bezier from (start, 0) to (mid, 25).
     path.setAttribute('d', `M${start} 0 C${start} 12, ${mid} 13, ${mid} 25`);
-    path.setAttribute('stroke', `var(--track-${i})`);
+    path.setAttribute('stroke', `var(--track-${i % MAX_TRACKS})`);
     if (i === 0 && visible < 2) path.setAttribute('stroke-dasharray', '4');
   }
   for (const i of outgoing) {
@@ -223,7 +223,7 @@ function _renderTrack($track: HTMLElement, { visible, depth, incomming, outgoing
     const end = (i - depth) * 12 + 6;
     // Bezier from (mid, 25) to (end, 50).
     path.setAttribute('d', `M${mid} 25 C${mid} 37, ${end} 38, ${end} 50`);
-    path.setAttribute('stroke', `var(--track-${i})`);
+    path.setAttribute('stroke', `var(--track-${i % MAX_TRACKS})`);
     if (!visible) path.setAttribute('stroke-dasharray', '4');
   }
 
@@ -232,7 +232,7 @@ function _renderTrack($track: HTMLElement, { visible, depth, incomming, outgoing
     circle.setAttribute('cx', `${mid}`);
     circle.setAttribute('cy', '25');
     circle.setAttribute('r', '4');
-    circle.setAttribute('fill', `var(--track-${depth})`);
+    circle.setAttribute('fill', `var(--track-${depth % MAX_TRACKS})`);
     circle.setAttribute('stroke', 'none');
   }
 }
@@ -240,14 +240,22 @@ function _renderTrack($track: HTMLElement, { visible, depth, incomming, outgoing
 function _renderRefs($refs: HTMLElement, refNames: readonly string[]): void {
   clearElement($refs);
   for (let refName of refNames) {
+    if (refName === 'origin/HEAD') continue;
     let head = refName.startsWith('HEAD -> ');
     if (head) {
       refName = refName.slice(7);
+    }
+    let tag = refName.startsWith('tag: ');
+    if (tag) {
+      refName = refName.slice(5);
     }
     const $ref = appendChild($refs, $('.ref'));
     $ref.textContent = refName;
     if (head) {
       $ref.classList.add('head');
+    }
+    if (tag) {
+      $ref.classList.add('tag');
     }
   }
 }

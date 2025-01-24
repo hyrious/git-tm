@@ -1,6 +1,5 @@
 import { disposableStore, type IDisposable } from '@wopjs/disposable';
 import { appendChild, listen } from '@wopjs/dom';
-import { colorTables } from '../base';
 import { Commits } from './commits';
 import { styleMod } from './css';
 import { $ } from './dom';
@@ -56,12 +55,14 @@ class Main implements IMain, IDisposable {
   }
 
   layout() {
-    let i = 0;
-    const colors: Record<string, string> = {};
-    for (const a of colorTables) for (const color of a) {
-      colors[`--track-${i++}`] = color;
-    }
-    styleMod.set(':root', colors);
+    styleMod.set(':root', {
+      '--track-0': 'light-dark(#1A85ff,#3794FF)', // blue
+      '--track-1': 'light-dark(#652D90,#B180D7)', // purple
+      '--track-2': 'light-dark(#E51400,#F14C4C)', // red
+      '--track-3': '#D18616',                     // orange
+      '--track-4': 'light-dark(#BF8803,#CCA700)', // yellow
+      '--track-5': 'light-dark(#388A34,#89D185)', // green
+    });
 
     const { clientWidth, clientHeight } = document.body;
     styleMod.set('.titlebar', {
