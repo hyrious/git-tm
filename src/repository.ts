@@ -149,7 +149,7 @@ export class Repository {
   }
 
   async logSize(): Promise<number> {
-    const args = ['rev-list', `${await this.getEmptyTree()}..`, '--count'];
+    const args = ['rev-list', '--all', '--count'];
 
     const result = await this.exec(args);
     if (result.exitCode) {

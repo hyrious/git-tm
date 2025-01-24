@@ -88,12 +88,12 @@ export class Commits extends Widget implements ItemRenderer<Item, Template> {
           if (parent) {
             if (parent === commit.hash) {
               if (!merged) {
-                nextTracks[j] = commit.parents[k++] || null;
+                const out = nextTracks[j] = commit.parents[k++] || null;
                 if (j === 0 && firstTrackInvisible) {
                   firstTrackInvisible = false;
-                  merged = { visible: 1, depth: j, incomming: [j], outgoing: [j], active: true };
+                  merged = { visible: 1, depth: j, incomming: [j], outgoing: out ? [j] : [], active: true };
                 } else {
-                  merged = { visible: firstTrackInvisible ? 0 : 2, depth: j, incomming: [j], outgoing: [j], active: true };
+                  merged = { visible: firstTrackInvisible ? 0 : 2, depth: j, incomming: [j], outgoing: out ? [j] : [], active: true };
                 }
                 tracks[j] = merged;
               } else {
