@@ -122,7 +122,7 @@ export class Repository {
   }
 
   async log(options?: LogOptions): Promise<Commit[]> {
-    const args = ['log', `--format=${COMMIT_FORMAT}`, '--branches', '-z'];
+    const args = ['log', `--format=${COMMIT_FORMAT}`, '--branches', '--remotes', '-z'];
 
     if (!options?.limit || typeof options.limit === 'number') {
       args.push(`-n${options?.limit ?? STEP}`);
@@ -149,7 +149,7 @@ export class Repository {
   }
 
   async logSize(): Promise<number> {
-    const args = ['rev-list', '--branches', '--count'];
+    const args = ['rev-list', '--branches', '--remotes', '--count'];
 
     const result = await this.exec(args);
     if (result.exitCode) {

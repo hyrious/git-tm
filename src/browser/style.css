@@ -244,3 +244,77 @@ code .line::before {
   background: var(--track-4);
   color: var(--background);
 }
+
+.statusbar {
+  display: flex;
+  align-items: center;
+  line-height: 22px;
+}
+.git-branch {
+  margin: 0 7px;
+  padding: 0 5px;
+  line-height: 22px;
+  flex: none;
+  cursor: pointer;
+  position: relative;
+  anchor-name: --git-branch;
+}
+.git-branch:hover {
+  background: var(--hover);
+}
+.git-branch > i.codicon {
+  font-size: 12px;
+}
+.git-branch-name {
+  padding-left: 5px;
+  padding-right: 5px;
+}
+.git-branch-menu {
+  position: absolute;
+  position-anchor: --git-branch;
+  inset: unset;
+  left: anchor(--git-branch left);
+  bottom: anchor(--git-branch top);
+  list-style-type: none;
+  border: 1px solid var(--border);
+  background: var(--background);
+  cursor: default;
+  line-height: 22px;
+}
+.git-branch-menu > .menu-item {
+  padding: 0 12px;
+  white-space: nowrap
+}
+.git-branch-menu > .menu-item:hover {
+  background: var(--hover);
+}
+.codicon-loading {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.space {
+  flex: 1;
+}
+.pinned {
+  padding: 0 12px;
+}
+.del {
+  display: inline-block;
+  line-height: 1;
+  padding: 2px 4px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--track-2) 50%, transparent);
+  border-radius: 4px;
+}
+.ins {
+  margin-left: 5px;
+  display: inline-block;
+  line-height: 1;
+  padding: 2px 4px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--track-5) 50%, transparent);
+  border-radius: 4px;
+}

@@ -6,6 +6,7 @@ import { $ } from './dom';
 import { Editor } from './editor';
 import { Files } from './files';
 import { Git } from './git';
+import { Status } from './status';
 import { Widget, type IMain } from './widget';
 
 // Remove browser.js from HTML.
@@ -31,6 +32,7 @@ class Main implements IMain, IDisposable {
   readonly files: Widget;
   readonly editor: Widget;
   readonly commits: Widget;
+  readonly status: Widget;
 
   constructor(readonly git: Git) {
     const $titlebar = appendChild(document.body, $('header.titlebar'));
@@ -45,6 +47,7 @@ class Main implements IMain, IDisposable {
     this.files = new Files($sidebar, this);
     this.editor = new Editor($editors, this);
     this.commits = new Commits($auxSidebar, this);
+    this.status = new Status($statusbar, this);
 
     // Render.
     const viewport = window.visualViewport || window;

@@ -1,5 +1,5 @@
 import type { DisposableType } from '@wopjs/disposable';
-import { MAX_TRACKS, type Writable } from '../base';
+import { clamp, MAX_TRACKS, type Writable } from '../base';
 import type { Commit, CommitShortStat, Ref, RefType } from '../repository';
 
 import { noop } from '@wopjs/cast';
@@ -7,7 +7,7 @@ import { appendChild, svgElement } from '@wopjs/dom';
 import { subscribe, val, type ReadonlyVal } from 'value-enhancer';
 import { reactiveList, type ReactiveList } from 'value-enhancer/collections';
 import { styleMod } from './css';
-import { $, clearElement } from './dom';
+import { $, clearElement, onCustomEvent } from './dom';
 import { Scrollable, type ItemRenderer } from './scrollable';
 import { Widget } from './widget';
 
@@ -52,6 +52,8 @@ export class Commits extends Widget implements ItemRenderer<Item, Template> {
   readonly items: ReactiveList<Item>;
   readonly head: Ref | undefined;
 
+  readonly offset$ = val<number | undefined>(); // index = range.start + offset
+
   override async initialize(this: Writable<this>): Promise<void> {
     this.head = this.root.git.refs.find(e => e.type === 0 as RefType.Head);
 
@@ -64,9 +66,15 @@ export class Commits extends Widget implements ItemRenderer<Item, Template> {
       items$: items.$,
       renderer: this,
     });
+    this._register(onCustomEvent('scroll-to', e => this.scrollable.scrollTo(e.detail as number)));
 
     this._register(subscribe(this.scrollable.visibleRange$, range => {
       this.root.git.touch(range.end);
+      if (this.offset$.value != null) {
+        const target = range.start + this.offset$.value;
+        this.root.git.index$.set(clamp(target, 0, items.length - 1));
+        // this.scrollable.focus(target);
+      }
     }));
 
     let firstTrackInvisible = true;
@@ -131,6 +139,16 @@ export class Commits extends Widget implements ItemRenderer<Item, Template> {
     }));
 
     this._register(this.scrollable.onClick(index => this.root.git.index$.set(index)));
+    this._register(this.scrollable.onDblClick(index => {
+      const offset = index - this.scrollable.visibleRange$.value.start;
+      if (this.offset$.value === offset) {
+        this.offset$.set(undefined);
+        window.dispatchEvent(new CustomEvent('pinned', { detail: false }));
+      } else {
+        this.offset$.set(offset);
+        window.dispatchEvent(new CustomEvent('pinned', { detail: true }));
+      }
+    }));
 
     const style = this._register(styleMod.derive('selected-commit'));
     this._register(this.root.git.commit$.subscribe(commit => {
@@ -174,6 +192,13 @@ export class Commits extends Widget implements ItemRenderer<Item, Template> {
       $date.textContent = _renderDate(commit.authorDate);
       $date.title = `Commit:\t${commit.commitDate}\nAuthor:\t${commit.authorDate}`;
       _renderRefs($refs, commit.refNames);
+    } else {
+      clearElement($tracks);
+      $message.textContent = '';
+      $changes.textContent = '';
+      $author.textContent = '';
+      $date.textContent = '';
+      clearElement($refs);
     }
     return noop;
   }

@@ -28,8 +28,11 @@ export interface Range {
 
 export class Scrollable<Item, Template = HTMLDivElement> implements IDisposable {
 
+  readonly itemHeight: number;
+
   readonly onClick: IEvent<number>;
   readonly onHover: IEvent<number>;
+  readonly onDblClick: IEvent<number>;
   readonly visibleRange$: ReadonlyVal<Range>;
 
   /** Equals to `options.container`, used to track the visual size and scroll position. */
@@ -41,7 +44,7 @@ export class Scrollable<Item, Template = HTMLDivElement> implements IDisposable 
   private readonly _itemEffects = this._store.add(disposableMap<Item>());
 
   constructor(options: ScrollableOptions<Item, Template>) {
-
+    this.itemHeight = options.itemHeight;
     const containerHeight$ = this._store.add(val(0));
     this._store.make(() => {
       const observer = new ResizeObserver((entries) => containerHeight$.set(entries[0].contentRect.height));
@@ -56,6 +59,7 @@ export class Scrollable<Item, Template = HTMLDivElement> implements IDisposable 
 
     const onClick = this.onClick = event<number>();
     const onHover = this.onHover = event<number>();
+    const onDblClick = this.onDblClick = event<number>();
 
     this.dom = options.container;
     this.dom.style.cssText = 'overflow:hidden auto;contain:strict';
@@ -76,6 +80,10 @@ export class Scrollable<Item, Template = HTMLDivElement> implements IDisposable 
     this._store.add(listen(this.dom, 'click', e => {
       const itemIndex = getItemIndex(e);
       if (itemIndex != null) send(onClick, itemIndex);
+    }));
+    this._store.add(listen(this.dom, 'dblclick', e => {
+      const itemIndex = getItemIndex(e);
+      if (itemIndex != null) send(onDblClick, itemIndex);
     }));
 
     this.content = appendChild(this.dom, element('div'));
@@ -146,6 +154,7 @@ export class Scrollable<Item, Template = HTMLDivElement> implements IDisposable 
           pool.release(e.dom);
         }
         const dom = pool.alloc();
+        dom.dataset.index = i.toString();
         dom.style.top = `${options.itemHeight * i}px`;
         children[i] = { data: item, dom };
         this._itemEffects.flush(item);
@@ -168,6 +177,14 @@ export class Scrollable<Item, Template = HTMLDivElement> implements IDisposable 
         }
       }
     }));
+  }
+
+  focus(index: number): void {
+    this.content.querySelector<HTMLElement>(`[data-index="${index}"]`)?.focus();
+  }
+
+  scrollTo(index: number): void {
+    this.dom.scrollTo({ top: index * this.itemHeight });
   }
 
   dispose() {

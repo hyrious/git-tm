@@ -1,9 +1,8 @@
 import type { Commit, IBasicGitInfo, LsTreeElement, Ref } from '../repository';
-import type { Range } from './scrollable';
 
 import flru from 'flru';
 import { seq } from '@wopjs/async-seq';
-import { isDefined, noop } from '@wopjs/cast';
+import { isDefined } from '@wopjs/cast';
 import { reactiveList } from 'value-enhancer/collections';
 import { disposableStore, type IDisposable } from '@wopjs/disposable';
 import { arrayShallowEqual, combine, derive, setValue, subscribe, val, type ReadonlyVal, type Val } from 'value-enhancer';
@@ -71,11 +70,26 @@ export class Git implements IDisposable {
 
   private readonly _fetching: { [group: number]: Promise<void>; } = [Promise.resolve()];
   private _touching = 1;
-  touch(end: number): void {
+  touch(end: number): Promise<void> {
     const max = Math.ceil(end / STEP);
-    while (this._touching < max) {
+    while (this._touching <= max) {
       this._fetching[this._touching] = this._fetch(this._touching);
       this._touching++;
+    }
+    return this._fetching[max];
+  }
+
+  async goto(refName: string): Promise<void> {
+    for (let i = 0; i < this.commits.length; i++) {
+      if (this.commits.get(i) == null) {
+        await this.touch(i);
+      }
+      const refNames = this.commits.get(i)!.refNames;
+      if (refNames.includes(refName) || refNames.includes('HEAD -> ' + refName)) {
+        setValue(this.index$, i);
+        window.dispatchEvent(new CustomEvent('scroll-to', { detail: i }));
+        return;
+      }
     }
   }
 

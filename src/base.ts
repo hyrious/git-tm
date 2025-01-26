@@ -27,3 +27,7 @@ export function inertFilterMap<T, U = T>(
 
   return result || (array as unknown as U[]);
 }
+
+export function clamp(value: number, min: number, max: number): number {
+  return value < min ? min : value > max ? max : value;
+}

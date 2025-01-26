@@ -14,7 +14,7 @@ export class Editor extends Widget {
   readonly html$: ReadonlyVal<string | undefined>;
 
   readonly $header: HTMLElement;
-  readonly $pre: HTMLPreElement;
+  readonly $pre: HTMLPreElement; // TODO: use real editor
 
   override initialize(this: Writable<this>): void {
     const path$ = this.path$ = val();
