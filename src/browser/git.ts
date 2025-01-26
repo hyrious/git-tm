@@ -22,7 +22,6 @@ export class Git implements IDisposable {
   readonly fileList$: ReadonlyVal<TreeNode<LsTreeElement>[]>;
 
   private readonly cache = flru<Promise<Uint8Array | undefined>>(20);
-  private readonly codeCache = flru<Promise<string | undefined>>(20);
 
   private constructor(info: IBasicGitInfo) {
     this.repo = info.root;
@@ -37,7 +36,6 @@ export class Git implements IDisposable {
     this._store.add(subscribe(this.commit$, commit => {
       if (commit) {
         this.cache.clear(false);
-        this.codeCache.clear(false);
         queue.schedule(async () => {
           _migrate(tree$, await _api<Tree<LsTreeElement>>('/tree', { ref: commit.hash }));
         });
@@ -99,15 +97,6 @@ export class Git implements IDisposable {
     if (p = this.cache.get(path)) return p;
     p = _blob('/show', { ref: commit.hash, path }).catch((error) => void console.log(error + ''));
     this.cache.set(path, p);
-    return p;
-  }
-
-  async render(path: string): Promise<string | undefined> {
-    const commit = await _wait$(this.commit$);
-    let p: Promise<string | undefined> | undefined;
-    if (p = this.codeCache.get(path)) return p;
-    p = _text('/code', { ref: commit.hash, path }).catch((error) => void console.log(error + ''));
-    this.codeCache.set(path, p);
     return p;
   }
 

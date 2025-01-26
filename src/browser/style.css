@@ -29,6 +29,7 @@ html {
 
 *, *:before, *:after {
   box-sizing: inherit;
+  scrollbar-color: var(--dim) var(--background);
 }
 
 [tabindex]:focus {
@@ -302,12 +303,16 @@ code .line::before {
   padding: 0 12px;
 }
 .del {
+  margin-left: 5px;
   display: inline-block;
   line-height: 1;
   padding: 2px 4px;
   color: var(--accent);
   background: color-mix(in srgb, var(--track-2) 50%, transparent);
   border-radius: 4px;
+}
+.del:empty {
+  display: none;
 }
 .ins {
   margin-left: 5px;
@@ -317,4 +322,7 @@ code .line::before {
   color: var(--accent);
   background: color-mix(in srgb, var(--track-5) 50%, transparent);
   border-radius: 4px;
+}
+.ins:empty {
+  display: none;
 }

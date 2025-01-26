@@ -7,7 +7,6 @@ import flru from 'flru';
 import { makeTree, Repository, type IBasicGitInfo } from './repository';
 
 import indexHTML from './index.html';
-import { getColors, highlight } from './shiki';
 const fileCodiconTTF = new URL('./codicon.ttf', import.meta.url);
 const fileStyleCSS = new URL('./style.css', import.meta.url);
 const fileBrowserJS = new URL('./browser.js', import.meta.url);
@@ -89,18 +88,6 @@ async function handleRequest(repo: Repository, req: http.IncomingMessage, res: h
         res.statusCode = 400;
         res.end();
       }
-    } else if (pathname === '/code') {
-      const ref = query?.get('ref') || 'HEAD';
-      const path = query?.get('path');
-      if (path) {
-        await sendHighlightedCode(req, res, repo, ref, path);
-      } else {
-        res.statusCode = 400;
-        res.end();
-      }
-    } else if (pathname === '/colors.json') {
-      const colors = await getColors();
-      send(req, res, JSON.stringify(colors), 'application/json');
     } else {
       res.statusCode = 404;
       res.end();
@@ -115,32 +102,6 @@ async function sendBlob(req: http.IncomingMessage, res: http.ServerResponse, rep
   const buffer = await repo.buffer(ref, path);
   const binary = buffer.subarray(0, 8000).indexOf(0) >= 0;
   send(req, res, buffer, binary ? 'application/octet-stream' : 'text/plain');
-}
-
-const MAX_CODE_SIZE = 2 * 1024 * 1024;
-const cache = flru<string>(20);
-async function sendHighlightedCode(req: http.IncomingMessage, res: http.ServerResponse, repo: Repository, ref: string, path: string): Promise<void> {
-  const key = `${ref}:${path}`;
-  if (cache.has(key)) {
-    return send(req, res, cache.get(key)!, 'text/html');
-  }
-
-  const buffer = await repo.buffer(ref, path);
-  const binary = buffer.subarray(0, 8000).indexOf(0) >= 0;
-  if (binary) {
-    res.statusCode = 400;
-    res.end('File is binary');
-    return;
-  }
-  if (buffer.byteLength > MAX_CODE_SIZE) {
-    res.statusCode = 413;
-    res.end('File is too large');
-    return;
-  }
-  const code = buffer.toString('utf8');
-  const html = await highlight(code, path);
-  cache.set(key, html);
-  send(req, res, html, 'text/html');
 }
 
 async function sendTree(req: http.IncomingMessage, res: http.ServerResponse, repo: Repository, ref?: string): Promise<void> {

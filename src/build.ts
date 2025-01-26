@@ -25,7 +25,6 @@ const build_cli = await context({
   format: 'esm',
   platform: 'node',
   mainFields: ['module', 'main'],
-  external: Object.keys(pkg.dependencies),
   loader: { '.html': 'text' },
   outfile: 'dist/cli.js',
 });

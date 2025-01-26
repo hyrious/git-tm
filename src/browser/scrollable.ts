@@ -180,7 +180,9 @@ export class Scrollable<Item, Template = HTMLDivElement> implements IDisposable 
   }
 
   focus(index: number): void {
-    this.content.querySelector<HTMLElement>(`[data-index="${index}"]`)?.focus();
+    scheduleInNextFrame(() => {
+      this.content.querySelector<HTMLElement>(`[data-index="${index}"]`)?.focus();
+    });
   }
 
   scrollTo(index: number): void {

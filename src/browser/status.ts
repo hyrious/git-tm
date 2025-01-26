@@ -45,15 +45,18 @@ export class Status extends Widget {
     $gitBranch.onclick = () => $menu.togglePopover();
 
     const $changes = appendChild(this.parent, $('.changes-detail'));
+    const $del = appendChild($changes, $('span.del'));
+    const $ins = appendChild($changes, $('span.ins'));
     this._register(subscribe(this.root.git.commit$, commit => {
-      clearElement($changes);
-      if (commit?.shortStat) {
-        if (commit.shortStat.deletions) {
-          appendChild($changes, $('span.del')).textContent = `-${commit.shortStat.deletions}`;
-        }
-        if (commit.shortStat.insertions) {
-          appendChild($changes, $('span.ins')).textContent = `+${commit.shortStat.insertions}`;
-        }
+      if (commit?.shortStat?.deletions) {
+        $del.textContent = `-${commit.shortStat.deletions}`;
+      } else {
+        $del.textContent = '';
+      }
+      if (commit?.shortStat?.insertions) {
+        $ins.textContent = `+${commit.shortStat.insertions}`;
+      } else {
+        $ins.textContent = '';
       }
     }));
 

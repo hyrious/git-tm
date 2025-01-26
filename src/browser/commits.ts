@@ -1,11 +1,11 @@
 import type { DisposableType } from '@wopjs/disposable';
-import { clamp, MAX_TRACKS, type Writable } from '../base';
 import type { Commit, CommitShortStat, Ref, RefType } from '../repository';
 
 import { noop } from '@wopjs/cast';
-import { appendChild, svgElement } from '@wopjs/dom';
-import { subscribe, val, type ReadonlyVal } from 'value-enhancer';
+import { appendChild, listen, svgElement } from '@wopjs/dom';
+import { subscribe, val } from 'value-enhancer';
 import { reactiveList, type ReactiveList } from 'value-enhancer/collections';
+import { clamp, MAX_TRACKS, type Writable } from '../base';
 import { styleMod } from './css';
 import { $, clearElement, onCustomEvent } from './dom';
 import { Scrollable, type ItemRenderer } from './scrollable';
@@ -158,6 +158,18 @@ export class Commits extends Widget implements ItemRenderer<Item, Template> {
           color: 'var(--accent)',
         }
       });
+    }));
+
+    this._register(listen(this.$container, 'keydown', e => {
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        const current = this.root.git.index$.value;
+        const next = clamp(current + (e.key === 'ArrowUp' ? -1 : 1), 0, items.length - 1);
+        if (next !== current) {
+          this.root.git.index$.set(next);
+          this.scrollable.focus(next);
+        }
+      }
     }));
   }
 
