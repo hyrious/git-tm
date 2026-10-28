@@ -1,5 +1,5 @@
 import { chmodSync, lstatSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
-import { context } from 'esbuild';
+import { analyzeMetafile, context } from 'esbuild';
 import { seq } from '@wopjs/async-seq';
 import { noop } from '@wopjs/cast';
 
@@ -16,6 +16,7 @@ const build_browser = await context({
   outdir: 'dist',
   loader: { '.ttf': 'file' },
   assetNames: '[name]',
+  metafile: true,
 });
 
 const build_cli = await context({
@@ -30,7 +31,7 @@ const build_cli = await context({
 
 async function _rebuild() {
   let t0 = Date.now();
-  await build_browser.rebuild();
+  let browser = await build_browser.rebuild();
   await build_cli.rebuild();
   let t = Date.now() - t0;
 
@@ -49,6 +50,8 @@ async function _rebuild() {
 
   console.info();
   console.info(`Built in ${t > 1000 ? Math.ceil(t / 1000) + 's' : t + 'ms'}`);
+
+  console.log(await analyzeMetafile(browser.metafile, { color: true }));
 }
 
 function rebuild(): Promise<void> {
