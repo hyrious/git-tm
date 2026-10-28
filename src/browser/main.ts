@@ -57,7 +57,7 @@ class Main implements IMain, IDisposable {
       const target = e.target;
       if (target instanceof HTMLElement) {
         if (target.closest('input, textarea, select, dialog[open], [role="menu"]')) return false;
-        const view = this.editor.view;
+        const view = this.editor.editor;
         if (target.isContentEditable && !(view?.state.readOnly && view.contentDOM.contains(target))) return false;
       }
       return true;

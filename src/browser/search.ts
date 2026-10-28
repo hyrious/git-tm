@@ -88,7 +88,7 @@ export class Search extends Widget {
     this._register(() => this.generation++);
 
     this._register(bindKeys(window, {
-      'Mod+f': { when: () => this.root.editor.view != null, run: () => this.toggle('file') },
+      'Mod+f': { when: () => this.root.editor.editor != null, run: () => this.toggle('file') },
       'Mod+Shift+f': () => this.toggle('global'),
       'Mod+p': () => this.toggle('files'),
       'Mod+k': () => this.toggle('commits'),
@@ -142,11 +142,11 @@ export class Search extends Widget {
     this.close();
     this.state = createState(mode);
     const memory = mode === 'file' || mode === 'global' ? this.memory.get(mode) : undefined;
-    const view = this.root.editor.view;
+    const view = this.root.editor.editor;
     if (mode === 'file' && view) {
       const selection = view.state.selection, scroll = view.scrollSnapshot();
       this.restore = () => {
-        if (this.root.editor.view === view) view.dispatch({ selection, effects: scroll });
+        if (this.root.editor.editor === view) view.dispatch({ selection, effects: scroll });
       };
     }
     const label = mode === 'commits' ? 'Find commits' : mode === 'files' ? 'Go to file' : mode === 'file' ? 'Find in file' : 'Find in snapshot';
@@ -242,7 +242,7 @@ export class Search extends Widget {
   async searchText(state: TextSearch, input: string, generation: number): Promise<number> {
     const pattern = searchPattern(input);
     const snapshot = this.root.git.snapshot$.value;
-    const view = this.root.editor.view;
+    const view = this.root.editor.editor;
     if (!snapshot) return 0;
     const paths = state.mode === 'file' ? [this.root.editor.path ?? ''] : await this.root.git.paths(snapshot);
     if (generation !== this.generation) return 0;
@@ -251,7 +251,7 @@ export class Search extends Widget {
       if (generation !== this.generation) return skipped;
       let lines: Iterable<string>;
       if (state.mode === 'file') {
-        if (!view || view !== this.root.editor.view) return skipped;
+        if (!view || view !== this.root.editor.editor) return skipped;
         lines = view.state.doc.iterLines();
       } else {
         let bytes: Uint8Array;

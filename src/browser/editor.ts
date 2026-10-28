@@ -15,6 +15,7 @@ import { modernDark, modernLight } from './editor-theme';
 import { Widget } from './widget';
 import { Scrollbars } from './scrollbars';
 import { bindKeys } from './keybindings';
+import { ImagePreview, imageType } from './image-preview';
 
 export interface DiffTarget {
   readonly kind: 'diff';
@@ -41,20 +42,24 @@ type EditorTarget = FileTarget | DiffTarget;
 export class Editor extends Widget {
   readonly $header: HTMLElement;
   readonly $body: HTMLElement;
-  view: EditorView | undefined;
-  path: string | undefined;
+
   readonly matches = new Compartment();
   readonly theme = new Compartment();
   readonly colorScheme = matchMedia('(prefers-color-scheme: dark)');
+
+  path: string | undefined;
+  editor: EditorView | undefined;
+  image: ImagePreview | undefined;
 
   override initialize(this: Writable<this>): void {
     this.$header = appendChild(this.parent, $('.editors-header'));
     this.$body = appendChild(this.parent, $('.editor-body'));
     this.$body.tabIndex = -1;
     this.showMessage('Select a file to view its contents.');
-    this._register(() => this.view?.destroy());
+    this._register(() => this.editor?.destroy());
+    this._register(() => this.image?.dispose());
     this._register(listen(this.colorScheme, 'change', () => {
-      this.view?.dispatch({ effects: this.theme.reconfigure(this.colorScheme.matches ? modernDark : modernLight) });
+      this.editor?.dispatch({ effects: this.theme.reconfigure(this.colorScheme.matches ? modernDark : modernLight) });
     }));
     this._register(bindKeys(this.$body, {
       'Escape'() { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); },
@@ -92,6 +97,15 @@ export class Editor extends Widget {
             ? await this.root.git.diffContents(target.range, target.file)
             : [await this.root.git.blob(target.path, target.snapshot)];
           if (target$.disposed || target$.value !== target) return;
+          const mime = target.kind === 'file' ? imageType(target.path) : undefined;
+          if (target.kind === 'file' && mime) {
+            const focused = this.$body.contains(document.activeElement);
+            this.clear();
+            this.image = new ImagePreview(this.$body, this.root.status.$image, contents[0], mime, target.path, () => this.showMessage('Could not load image.'));
+            this.path = path;
+            if (focused) this.focus();
+            return;
+          }
           if ((target.kind === 'diff' && target.file.insertions == null) || contents.some(b => b.subarray(0, 8000).includes(0))) {
             this.showMessage('File is binary.');
             return;
@@ -101,7 +115,7 @@ export class Editor extends Widget {
           const focused = this.$body.contains(document.activeElement);
           this.clear();
           if (target.kind === 'diff') {
-            this.view = new EditorView({
+            this.editor = new EditorView({
               parent: this.$body,
               doc: docs[1],
               extensions: [
@@ -110,7 +124,7 @@ export class Editor extends Widget {
               ],
             });
           } else {
-            this.view = new EditorView({ parent: this.$body, doc: docs[0], extensions: this.extensions(target.path, target.path) });
+            this.editor = new EditorView({ parent: this.$body, doc: docs[0], extensions: this.extensions(target.path, target.path) });
           }
           this.path = path;
           if (target.kind === 'file' && target.location) {
@@ -152,8 +166,10 @@ export class Editor extends Widget {
 
   clear(): void {
     window.dispatchEvent(new CustomEvent('editor.clear'));
-    this.view?.destroy();
-    this.view = undefined;
+    this.editor?.destroy();
+    this.editor = undefined;
+    this.image?.dispose();
+    this.image = undefined;
     this.path = undefined;
     this.$body.replaceChildren();
     this.$body.classList.remove('editor-message');
@@ -168,25 +184,25 @@ export class Editor extends Widget {
   }
 
   focus(): void {
-    if (this.view) this.view.focus();
+    if (this.editor) this.editor.focus();
     else this.$body.focus({ preventScroll: true });
   }
 
   reveal(from: number, to: number): void {
-    const view = this.view;
-    if (!view) return;
-    from = Math.min(from, view.state.doc.length);
-    to = Math.min(to, view.state.doc.length);
-    view.dispatch({ selection: { anchor: from, head: to }, effects: EditorView.scrollIntoView(from, { y: 'center' }) });
+    const editor = this.editor;
+    if (!editor) return;
+    from = Math.min(from, editor.state.doc.length);
+    to = Math.min(to, editor.state.doc.length);
+    editor.dispatch({ selection: { anchor: from, head: to }, effects: EditorView.scrollIntoView(from, { y: 'center' }) });
   }
 
   highlight(matches: readonly { from: number; to: number; }[]): void {
     const marks = matches.filter(match => match.from < match.to).map(match =>
       Decoration.mark({ class: 'cm-searchMatch' }).range(match.from, match.to));
-    this.view?.dispatch({ effects: this.matches.reconfigure(EditorView.decorations.of(Decoration.set(marks, true))) });
+    this.editor?.dispatch({ effects: this.matches.reconfigure(EditorView.decorations.of(Decoration.set(marks, true))) });
   }
 
   override layout(): void {
-    this.view?.requestMeasure();
+    this.editor?.requestMeasure();
   }
 }

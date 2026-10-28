@@ -100,7 +100,7 @@ export class Help extends Widget {
       const target = e.target;
       if (target instanceof HTMLElement) {
         if (target.closest('input, textarea, select, dialog[open]')) return;
-        const view = this.root.editor.view;
+        const view = this.root.editor.editor;
         if (target.isContentEditable && !(view?.state.readOnly && view.contentDOM.contains(target))) return;
       }
       e.preventDefault();

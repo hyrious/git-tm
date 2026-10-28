@@ -144,7 +144,7 @@ i {
   outline: 1px solid -webkit-focus-ring-color;
   outline-offset: -1px;
 }
-.sidebar > .files:focus, .editor-body:focus {
+.sidebar > .files:focus, .editor-body:focus, .image-viewport:focus {
   outline: none;
 }
 .files-header, .editors-header {
@@ -221,6 +221,58 @@ i {
 .editor-message {
   align-content: center;
   text-align: center;
+}
+
+.image-preview {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.image-status {
+  display: flex;
+  align-items: center;
+}
+.image-dimensions, .image-zoom {
+  padding: 0 8px;
+  white-space: nowrap;
+}
+.image-zoom {
+  line-height: 22px;
+  cursor: pointer;
+  anchor-name: --image-zoom;
+}
+.image-zoom:hover {
+  background: var(--hover);
+}
+.image-zoom-menu {
+  position-anchor: --image-zoom;
+}
+.image-zoom-menu .menu-item[aria-checked="true"] {
+  background: var(--selected);
+}
+.image-scroll {
+  flex: 1;
+  min-height: 0;
+}
+.image-viewport {
+  height: 100%;
+  overflow: auto;
+}
+.image-canvas {
+  cursor: zoom-in;
+  user-select: none;
+  -webkit-user-select: none;
+  display: flex;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 100%;
+  min-height: 100%;
+  padding: 16px;
+}
+.image-canvas img {
+  flex: none;
+  margin: auto;
+  background: repeating-conic-gradient(light-dark(#ddd, #383838) 0% 25%, light-dark(#fff, #252525) 0% 50%) 0 0 / 16px 16px;
 }
 
 .commits {
@@ -336,28 +388,35 @@ i {
   padding-left: 5px;
   padding-right: 5px;
 }
-.git-branch-menu {
+.git-branch-menu, .image-zoom-menu {
   position: absolute;
   max-height: calc(100vh - 22px);
   overflow: hidden;
-  position-anchor: --git-branch;
   inset: unset;
-  left: anchor(--git-branch left);
-  bottom: anchor(--git-branch top);
   list-style-type: none;
   border: 1px solid var(--border);
   background: var(--background);
   cursor: default;
   line-height: 22px;
 }
-.git-branch-menu .menu-item {
+.git-branch-menu {
+  position-anchor: --git-branch;
+  left: anchor(--git-branch left);
+  bottom: anchor(--git-branch top);
+}
+.image-zoom-menu {
+  right: anchor(--image-zoom right);
+  bottom: anchor(--image-zoom top);
+}
+.git-branch-menu .menu-item, .image-zoom-menu .menu-item {
   padding: 0 12px;
   white-space: nowrap
 }
-.git-branch-menu .menu-item:hover {
+.git-branch-menu .menu-item:hover, .image-zoom-menu .menu-item:hover {
   background: var(--hover);
 }
 .git-branch,
+.image-zoom,
 .help-button,
 .changes-button,
 .change-file {
@@ -369,6 +428,7 @@ i {
   font: inherit;
   cursor: pointer;
 }
+.image-zoom:focus:not(:focus-visible),
 .git-branch:focus:not(:focus-visible),
 .help-button:focus:not(:focus-visible),
 .changes-button:focus:not(:focus-visible) {

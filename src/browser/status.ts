@@ -14,6 +14,7 @@ import { Help } from './help';
 export class Status extends Widget {
 
   readonly $menu: HTMLElement;
+  readonly $image: HTMLElement;
   readonly changes: Changes;
 
   readonly branch$: ReactiveWritable<string | null>;
@@ -102,6 +103,7 @@ export class Status extends Widget {
       $pinned.textContent = e.detail ? 'Pinned.' : '';
     }));
     this._register(new Help(this.parent, this.root));
+    this.$image = appendChild(this.parent, $('.image-status'));
 
     this.branch$ = this._register(writable<string | null>(this.root.git.head.name || this.root.git.head.commit?.slice(0, 7) || null));
     this._register(this.branch$.subscribe((branch) => {
@@ -130,6 +132,7 @@ export class Status extends Widget {
   }
 
   closeMenus(): void {
+    this.root.editor.image?.closeMenu();
     this.closeBranches();
     this.changes.close();
   }
