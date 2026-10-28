@@ -1,18 +1,20 @@
 import type { DisposableType, IDisposable } from '@wopjs/disposable';
-import type { ReadonlyVal } from 'value-enhancer';
+import type { Readable } from '@embra/reactivity';
 
-import { compute, derive, val } from 'value-enhancer';
+import { compute, derive, writable } from '@embra/reactivity';
 import { disposableMap, disposableStore } from '@wopjs/disposable';
 import { appendChild, detach, element, listen } from '@wopjs/dom';
 import { event, send, type IEvent } from '@wopjs/event';
-
+import { clamp } from '../common/base';
 import { scheduleInNextFrame } from './raf';
 import { Pool } from './pool';
+import { Scrollbars } from './scrollbars';
+import { bindKeys } from './keybindings';
 
 export interface ScrollableOptions<Item, Template = HTMLDivElement> {
   readonly container: HTMLElement;
   readonly itemHeight: number;
-  readonly items$: ReadonlyVal<readonly Item[]>;
+  readonly items$: Readable<readonly Item[]>;
   readonly renderer: ItemRenderer<Item, Template>;
 }
 
@@ -30,22 +32,29 @@ export class Scrollable<Item, Template = HTMLDivElement> implements IDisposable 
 
   readonly itemHeight: number;
 
+  readonly onDidChangeFocus = event<number>();
   readonly onClick: IEvent<number>;
   readonly onHover: IEvent<number>;
   readonly onDblClick: IEvent<number>;
-  readonly visibleRange$: ReadonlyVal<Range>;
+  readonly visibleRange$: Readable<Range>;
 
   /** Equals to `options.container`, used to track the visual size and scroll position. */
   readonly dom: HTMLElement;
   /** The direct child of `this.dom`, scrolls with its parent and holds absolutely positioned items. */
   readonly content: HTMLDivElement;
 
+  private static nextId = 0;
+  private readonly id = `list-${Scrollable.nextId++}`;
+  private readonly items$: Readable<readonly Item[]>;
+  private focused: number | undefined;
+
   private readonly _store = disposableStore();
   private readonly _itemEffects = this._store.add(disposableMap<Item>());
 
   constructor(options: ScrollableOptions<Item, Template>) {
     this.itemHeight = options.itemHeight;
-    const containerHeight$ = this._store.add(val(0));
+    this.items$ = options.items$;
+    const containerHeight$ = this._store.add(writable(0));
     this._store.make(() => {
       const observer = new ResizeObserver((entries) => containerHeight$.set(entries[0].contentRect.height));
       observer.observe(options.container);
@@ -54,7 +63,7 @@ export class Scrollable<Item, Template = HTMLDivElement> implements IDisposable 
 
     const contentHeight$ = this._store.add(derive(options.items$, items => items.length * options.itemHeight));
 
-    const scrollTop$ = this._store.add(val(0));
+    const scrollTop$ = this._store.add(writable(0));
     this._store.add(listen(options.container, 'scroll', () => scrollTop$.set(options.container.scrollTop)));
 
     const onClick = this.onClick = event<number>();
@@ -62,6 +71,12 @@ export class Scrollable<Item, Template = HTMLDivElement> implements IDisposable 
     const onDblClick = this.onDblClick = event<number>();
 
     this.dom = options.container;
+    this.dom.tabIndex = 0;
+    this.dom.setAttribute('role', 'listbox');
+    this._store.add(bindKeys(this.dom, {
+      'ArrowUp,ArrowDown': { repeat: true, run: e => this.onArrowKey(e) },
+      'Escape': () => this.dom.blur(),
+    }));
     this.dom.style.cssText = 'overflow:hidden auto;contain:strict';
     const getItemIndex = (e: MouseEvent): number | undefined => {
       const dy = e.clientY - this.dom.getBoundingClientRect().top;
@@ -79,7 +94,10 @@ export class Scrollable<Item, Template = HTMLDivElement> implements IDisposable 
     }));
     this._store.add(listen(this.dom, 'click', e => {
       const itemIndex = getItemIndex(e);
-      if (itemIndex != null) send(onClick, itemIndex);
+      if (itemIndex != null) {
+        this.focus(itemIndex);
+        send(onClick, itemIndex);
+      }
     }));
     this._store.add(listen(this.dom, 'dblclick', e => {
       const itemIndex = getItemIndex(e);
@@ -87,6 +105,7 @@ export class Scrollable<Item, Template = HTMLDivElement> implements IDisposable 
     }));
 
     this.content = appendChild(this.dom, element('div'));
+    this._store.add(new Scrollbars(this.dom, this.content));
     this._store.add(contentHeight$.subscribe(() => scheduleInNextFrame(() => {
       this.content.style.height = `${contentHeight$.value}px`;
     })));
@@ -96,7 +115,7 @@ export class Scrollable<Item, Template = HTMLDivElement> implements IDisposable 
       template.style.position = 'absolute';
       template.style.width = '100%';
       template.style.height = template.style.lineHeight = `${options.itemHeight}px`;
-      template.tabIndex = -1;
+      if (!template.hasAttribute('role')) template.setAttribute('role', 'option');
       return template;
     }));
 
@@ -155,6 +174,7 @@ export class Scrollable<Item, Template = HTMLDivElement> implements IDisposable 
         }
         const dom = pool.alloc();
         dom.dataset.index = i.toString();
+        dom.id = `${this.id}-${i}`;
         dom.style.top = `${options.itemHeight * i}px`;
         children[i] = { data: item, dom };
         this._itemEffects.flush(item);
@@ -162,6 +182,7 @@ export class Scrollable<Item, Template = HTMLDivElement> implements IDisposable 
         appendChild(this.content, dom);
       }
 
+      this.renderFocus();
       added.clear();
       removed.clear();
     }));
@@ -179,10 +200,46 @@ export class Scrollable<Item, Template = HTMLDivElement> implements IDisposable 
     }));
   }
 
+  private onArrowKey(e: KeyboardEvent): void {
+    this.focus(this.focused == null ? 0 : this.focused + (e.key === 'ArrowUp' ? -1 : 1));
+  }
+
+  setFocus(index: number | undefined): void {
+    const next = this.items$.value.length && index != null ? clamp(index, 0, this.items$.value.length - 1) : undefined;
+    this.focused = next;
+    this.renderFocus();
+  }
+
   focus(index: number): void {
-    scheduleInNextFrame(() => {
-      this.content.querySelector<HTMLElement>(`[data-index="${index}"]`)?.focus();
-    });
+    this.dom.focus({ preventScroll: true });
+    const previous = this.focused;
+    this.setFocus(index);
+    if (this.focused != null) {
+      this.reveal(this.focused);
+      if (previous !== this.focused) send(this.onDidChangeFocus, this.focused);
+    }
+  }
+
+  reveal(index: number): void {
+    const top = index * this.itemHeight;
+    const bottom = top + this.itemHeight;
+    if (top < this.dom.scrollTop) this.dom.scrollTop = top;
+    else if (bottom > this.dom.scrollTop + this.dom.clientHeight) {
+      this.dom.scrollTop = bottom - this.dom.clientHeight;
+    }
+  }
+
+  private renderFocus(): void {
+    let active: string | undefined;
+    for (const child of this.content.children) {
+      const row = child as HTMLElement;
+      const focused = Number(row.dataset.index) === this.focused;
+      row.classList.toggle('focused', focused);
+      row.setAttribute('aria-selected', String(focused));
+      if (focused) active = row.id;
+    }
+    if (active) this.dom.setAttribute('aria-activedescendant', active);
+    else this.dom.removeAttribute('aria-activedescendant');
   }
 
   scrollTo(index: number): void {

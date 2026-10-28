@@ -1,12 +1,14 @@
+import type { IBasicGitInfo } from '../common/git';
+
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import http from 'node:http';
-import flru from 'flru';
 
-import { makeTree, Repository, type IBasicGitInfo } from './repository';
+import { Repository } from './repository';
+import { makeTree } from '../common/tree';
 
-import indexHTML from './index.html';
+import indexHTML from '../browser/index.html';
 const fileCodiconTTF = new URL('./codicon.ttf', import.meta.url);
 const fileStyleCSS = new URL('./style.css', import.meta.url);
 const fileBrowserJS = new URL('./browser.js', import.meta.url);
@@ -77,10 +79,13 @@ async function handleRequest(repo: Repository, req: http.IncomingMessage, res: h
       const skip = Number.parseInt(query?.get('skip') ?? '0', 10) || undefined;
       await sendLog(req, res, repo, skip);
     } else if (pathname === '/tree') { // /tree?ref=HEAD
-      const ref = query?.get('ref') || undefined;
+      const ref = query?.get('workingTree') === '1' ? undefined : query?.get('ref') || 'HEAD';
       await sendTree(req, res, repo, ref);
+    } else if (pathname === '/diff') {
+      const ref = query?.get('workingTree') === '1' ? undefined : query?.get('ref') || 'HEAD';
+      send(req, res, JSON.stringify(await repo.diff(ref)), 'application/json');
     } else if (pathname === '/show') { // /show?ref=HEAD&path=src/main.ts
-      const ref = query?.get('ref') || 'HEAD';
+      const ref = query?.get('workingTree') === '1' ? undefined : query?.get('ref') || 'HEAD';
       const path = query?.get('path');
       if (path) {
         await sendBlob(req, res, repo, ref, path);
@@ -98,24 +103,26 @@ async function handleRequest(repo: Repository, req: http.IncomingMessage, res: h
   }
 }
 
-async function sendBlob(req: http.IncomingMessage, res: http.ServerResponse, repo: Repository, ref: string, path: string): Promise<void> {
-  const buffer = await repo.buffer(ref, path);
+async function sendBlob(req: http.IncomingMessage, res: http.ServerResponse, repo: Repository, ref: string | undefined, path: string): Promise<void> {
+  const buffer = ref ? await repo.buffer(ref, path) : await repo.workingBuffer(path);
   const binary = buffer.subarray(0, 8000).indexOf(0) >= 0;
   send(req, res, buffer, binary ? 'application/octet-stream' : 'text/plain');
 }
 
 async function sendTree(req: http.IncomingMessage, res: http.ServerResponse, repo: Repository, ref?: string): Promise<void> {
-  const raw = await repo.lstree(ref ?? 'HEAD', { recursive: true });
+  const raw = ref ? await repo.lstree(ref, { recursive: true }) : await repo.workingTree();
   const tree = makeTree(raw);
   send(req, res, JSON.stringify(tree), 'application/json');
 }
 
 async function sendLog(req: http.IncomingMessage, res: http.ServerResponse, repo: Repository, skip?: number): Promise<void> {
+  const { head, workingTree } = await repo.getState();
   const info: IBasicGitInfo = {
+    head, workingTree,
     root: repo.root,
     refs: await repo.getRefs(),
-    commits: await repo.log({ shortStats: true, skip }),
-    total: await repo.logSize(),
+    commits: await repo.log({ shortStats: true, skip, head: head.commit }),
+    total: await repo.logSize(head.commit),
   };
   send(req, res, JSON.stringify(info), 'application/json');
 }

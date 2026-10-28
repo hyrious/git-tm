@@ -1,8 +1,7 @@
-import { chmodSync, lstatSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from 'fs';
+import { chmodSync, lstatSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { context } from 'esbuild';
 import { seq } from '@wopjs/async-seq';
 import { noop } from '@wopjs/cast';
-import pkg from '../package.json';
 
 rmSync('dist', { recursive: true, force: true });
 const build_watch = process.argv.includes('-w');
@@ -20,7 +19,7 @@ const build_browser = await context({
 });
 
 const build_cli = await context({
-  entryPoints: ['src/cli.ts'],
+  entryPoints: ['src/node/cli.ts'],
   bundle: true,
   format: 'esm',
   platform: 'node',
@@ -63,7 +62,10 @@ if (build_watch) {
   watcher.on('change', () => queue.schedule(rebuild));
   queue.schedule(rebuild);
 } else {
-  await rebuild();
-  await build_browser.dispose();
-  await build_cli.dispose();
+  try {
+    await _rebuild();
+  } finally {
+    await build_browser.dispose();
+    await build_cli.dispose();
+  }
 }

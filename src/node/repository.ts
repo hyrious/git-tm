@@ -2,35 +2,21 @@
 
 import type { ChildProcess, SpawnOptions } from 'node:child_process';
 import type { Disposer } from '@wopjs/disposable';
-import type { Tree, TreeNode } from './browser/tree';
+import type { Commit, CommitShortStat, Diff, DiffFile, DiffRange, LsTreeElement, Ref, WorkingTree } from '../common/git';
 
 import cp from 'node:child_process';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { isTruthy } from '@wopjs/cast';
-import { STEP, type Writable } from './base';
+import { RefType } from '../common/git';
+import { STEP } from '../common/base';
 
 export interface LogOptions {
   readonly skip?: number;
   /** Default {@link STEP}. */
   readonly limit?: number | { readonly id: string; };
   readonly shortStats?: boolean;
-}
-
-export interface Commit {
-  readonly hash: string;
-  readonly message: string;
-  readonly parents: string[];
-  readonly authorDate?: Date;
-  readonly authorName?: string;
-  readonly authorEmail?: string;
-  readonly commitDate?: Date;
-  readonly refNames: string[];
-  readonly shortStat?: CommitShortStat;
-}
-
-export interface CommitShortStat {
-  readonly files: number;
-  readonly insertions: number;
-  readonly deletions: number;
+  readonly head?: string;
 }
 
 export interface ExecResult<T extends string | Uint8Array> {
@@ -39,39 +25,9 @@ export interface ExecResult<T extends string | Uint8Array> {
   stderr: string;
 }
 
-export const enum RefType {
-  Head,
-  RemoteHead,
-  Tag,
-}
-
-export interface Ref {
-  readonly type: RefType;
-  readonly name?: string;
-  readonly commit?: string;
-  readonly remote?: string;
-}
-
-export interface LsTreeElement {
-  /** For example, `100644`. */
-  readonly mode: string;
-  readonly type: 'commit' | 'blob' | 'tree';
-  readonly object: string;
-  /** Bytes, folders will be `-`. */
-  readonly size: string;
-  readonly file: string;
-}
-
 export interface LsTreeOptions {
   readonly path?: string;
   readonly recursive?: boolean;
-}
-
-export interface IBasicGitInfo {
-  root: string;
-  refs: Ref[];
-  commits: Commit[];
-  total: number;
 }
 
 const COMMIT_FORMAT = '%H%n%aN%n%aE%n%at%n%ct%n%P%n%D%n%B';
@@ -79,8 +35,79 @@ const COMMIT_FORMAT = '%H%n%aN%n%aE%n%at%n%ct%n%P%n%D%n%B';
 export class Repository {
   constructor(readonly root: string) { }
 
+  async getState(): Promise<{ head: Ref; workingTree: WorkingTree | undefined; }> {
+    const { stdout } = await this.exec(['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all']);
+    let name: string | undefined, commit: string | undefined;
+    let staged = 0, unstaged = 0, untracked = 0;
+    const records = stdout.split('\0');
+    for (let i = 0; i < records.length; i++) {
+      const record = records[i];
+      if (record.startsWith('# branch.oid ')) {
+        const oid = record.slice(13);
+        if (oid !== '(initial)') commit = oid;
+      } else if (record.startsWith('# branch.head ')) {
+        const branch = record.slice(14);
+        if (branch !== '(detached)') name = branch;
+      } else if (record.startsWith('? ')) {
+        untracked++;
+      } else if (/^[12u] /.test(record)) {
+        if (record[2] !== '.') staged++;
+        if (record[3] !== '.') unstaged++;
+        if (record[0] === '2') i++;
+      }
+    }
+    return {
+      head: { type: RefType.Head, name, commit },
+      workingTree: staged || unstaged || untracked || !commit ? {
+        kind: 'working-tree', parents: commit ? [commit] : [], staged, unstaged, untracked,
+      } : undefined,
+    };
+  }
+
+  private async workingFiles(): Promise<string[]> {
+    const { stdout } = await this.exec(['ls-files', '--cached', '--others', '--exclude-standard', '-z']);
+    return [...new Set(stdout.split('\0').filter(isTruthy))];
+  }
+
+  private async workingPath(file: string): Promise<string> {
+    const parts = file.split('/');
+    if (path.isAbsolute(file) || parts.some(part => part === '..' || part === '.git')) {
+      throw new Error('Invalid file path');
+    }
+    let parent = this.root;
+    for (const part of parts.slice(0, -1)) {
+      parent = path.join(parent, part);
+      if ((await fs.lstat(parent)).isSymbolicLink()) throw new Error('Cannot traverse a symbolic link');
+    }
+    return path.join(this.root, file);
+  }
+
+  async workingTree(): Promise<LsTreeElement[]> {
+    const elements: LsTreeElement[] = [];
+    for (const file of await this.workingFiles()) {
+      try {
+        const stat = await fs.lstat(await this.workingPath(file));
+        elements.push({
+          mode: stat.isSymbolicLink() ? '120000' : stat.isDirectory() ? '160000' : '100644',
+          type: stat.isDirectory() ? 'commit' : 'blob',
+          object: '', size: String(stat.size), file,
+        });
+      } catch (error) {
+        if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error;
+      }
+    }
+    return elements;
+  }
+
+  async workingBuffer(file: string): Promise<Buffer> {
+    if (!(await this.workingFiles()).includes(file)) throw new Error('File not found');
+    const filename = await this.workingPath(file);
+    const stat = await fs.lstat(filename);
+    return stat.isSymbolicLink() ? Buffer.from(await fs.readlink(filename)) : fs.readFile(filename);
+  }
+
   async lstree(treeish: string, options?: LsTreeOptions): Promise<LsTreeElement[]> {
-    const args = ['-c', 'core.quotePath=false', 'ls-tree', '-l', treeish];
+    const args = ['-c', 'core.quotePath=false', 'ls-tree', '-lz', treeish];
     if (options?.recursive) {
       args.push('-r');
     }
@@ -93,11 +120,29 @@ export class Repository {
 
   async buffer(ref: string, path: string): Promise<Buffer> {
     const object = `${ref}:${path}`;
-    const result = await this.exec(['show', '--textconv', object], true);
+    const result = await this.exec(['show', object], true);
     if (result.exitCode) {
       return Promise.reject<Buffer>(new Error('Could not show object'));
     }
     return result.stdout;
+  }
+
+  async diff(ref?: string): Promise<Diff> {
+    const snapshot = ref ? await this.getCommit(ref) : (await this.getState()).head;
+    const base = 'parents' in snapshot ? snapshot.parents[0] : snapshot.commit;
+    const range: DiffRange = {
+      base: base ?? await this.getEmptyTree(),
+      target: 'hash' in snapshot ? snapshot.hash : undefined,
+    };
+    const result = await this.exec([...this.diffArgs(range), '--raw', '--numstat', '-z', '--']);
+    return { range, files: parseGitDiff(result.stdout) };
+  }
+
+  private diffArgs(range: DiffRange): string[] {
+    for (const ref of [range.base, range.target]) {
+      if (ref != null && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(ref)) throw new Error('Invalid diff revision');
+    }
+    return ['--literal-pathspecs', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '-M', range.base, ...(range.target ? [range.target] : [])];
   }
 
   async getRefs(): Promise<Ref[]> {
@@ -122,7 +167,8 @@ export class Repository {
   }
 
   async log(options?: LogOptions): Promise<Commit[]> {
-    const args = ['log', `--format=${COMMIT_FORMAT}`, '--branches', '--remotes', '-z'];
+    const args = ['log', `--format=${COMMIT_FORMAT}`, '--topo-order', '--branches', '--remotes', '--tags', '-z'];
+    if (options?.head) args.push(options.head);
 
     if (!options?.limit || typeof options.limit === 'number') {
       args.push(`-n${options?.limit ?? STEP}`);
@@ -137,7 +183,7 @@ export class Repository {
     }
 
     if (options?.shortStats) {
-      args.push('--shortstat');
+      args.push('--shortstat', '--diff-merges=first-parent');
     }
 
     const result = await this.exec(args);
@@ -148,8 +194,9 @@ export class Repository {
     return parseGitCommits(result.stdout);
   }
 
-  async logSize(): Promise<number> {
-    const args = ['rev-list', '--branches', '--remotes', '--count'];
+  async logSize(head?: string): Promise<number> {
+    const args = ['rev-list', '--branches', '--remotes', '--tags', '--count'];
+    if (head) args.push(head);
 
     const result = await this.exec(args);
     if (result.exitCode) {
@@ -169,7 +216,7 @@ export class Repository {
   }
 
   async getCommit(ref: string): Promise<Commit> {
-    const result = await this.exec(['show', '-s', '--decorate=full', '--shortstat', `--format=${COMMIT_FORMAT}`, '-z', ref]);
+    const result = await this.exec(['show', '-s', '--decorate=full', '--shortstat', `--format=${COMMIT_FORMAT}`, '-z', '--end-of-options', ref]);
     const commits = parseGitCommits(result.stdout);
     if (commits.length === 0) {
       return Promise.reject<Commit>('bad commit format');
@@ -260,6 +307,7 @@ function parseGitCommits(data: string): Commit[] {
 
     // ` ${s}`.slice(1) forces creates a new string instead of a reference to the original huge string.
     commits.push({
+      kind: 'commit',
       hash: ` ${hash}`.slice(1),
       message: ` ${message}`.slice(1),
       parents: parents ? parents.split(' ') : [],
@@ -288,13 +336,38 @@ function parseGitDiffShortStat(data: string): CommitShortStat {
   return { files: 0, insertions: 0, deletions: 0 };
 }
 
-const lsTreeRegex = /^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(.*)$/;
+function parseGitDiff(raw: string): DiffFile[] {
+  const files: DiffFile[] = [];
+  const records = raw.split('\0');
+  let index = 0;
+  while (records[index]?.startsWith(':')) {
+    const status = records[index++].split(' ')[4];
+    const oldPath = records[index++];
+    const newPath = /^[RC]/.test(status) ? records[index++] : oldPath;
+    files.push({ status, oldPath, newPath, insertions: null, deletions: null });
+  }
+  for (let i = 0; i < files.length; i++) {
+    const record = records[index++];
+    const first = record.indexOf('\t'), second = record.indexOf('\t', first + 1);
+    const insertions = record.slice(0, first), deletions = record.slice(first + 1, second);
+    // Renames have an empty path followed by two NUL-delimited paths.
+    if (second === record.length - 1) index += 2;
+    files[i] = {
+      ...files[i],
+      insertions: insertions === '-' ? null : Number(insertions),
+      deletions: deletions === '-' ? null : Number(deletions),
+    };
+  }
+  return files;
+}
+
+const lsTreeRegex = /^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\t([^]*)$/;
 
 function parseLsTree(raw: string): LsTreeElement[] {
   const elements: LsTreeElement[] = [];
 
   let match: RegExpExecArray | null;
-  for (const line of raw.split('\n')) {
+  for (const line of raw.split('\0')) {
     if (line && (match = lsTreeRegex.exec(line))) {
       const [, mode, type, object, size, file] = match;
       elements.push({ mode, type, object, size, file } as LsTreeElement);
@@ -304,50 +377,3 @@ function parseLsTree(raw: string): LsTreeElement[] {
   return elements;
 }
 
-// Git doesn't have a "folder" concept, so not need to check the blob type.
-export function makeTree(elements: LsTreeElement[]): Tree<LsTreeElement> {
-  const tree: Tree<LsTreeElement> = { children: [], collapsible: false, collapsed: false };
-
-  for (const item of elements) {
-    if (item.type === 'tree') {
-      throw new Error('Unable to construct the files tree because "recursive" is not enabled.');
-    }
-
-    const parts = item.file.split('/');
-    let current: Writable<Tree<LsTreeElement>> = tree, path = '', depth = 0;
-    for (const part of parts) {
-      path = path ? `${path}/${part}` : part;
-      let child = current.children.find(e => e.data.file === path);
-      if (!child) {
-        const data: LsTreeElement = item.file === path ? item : {
-          mode: '0', type: 'tree', object: '', size: '-', file: path
-        };
-        child = { data, children: [], depth, collapsible: false, collapsed: true };
-        current.children.push(child);
-        current.collapsible = true;
-      }
-      current = child;
-      depth++;
-    }
-  }
-  sortTree(tree);
-
-  return tree;
-}
-
-function sortTree(tree: Tree<LsTreeElement>) {
-  tree.children.sort(compareTreeNode);
-  for (const child of tree.children) {
-    sortTree(child);
-  }
-}
-
-const collator = new Intl.Collator(undefined, { numeric: true });
-
-function compareTreeNode(a: TreeNode<LsTreeElement>, b: TreeNode<LsTreeElement>): number {
-  // Sort folders first.
-  if (a.children.length > 0 && b.children.length === 0) return -1;
-  if (a.children.length === 0 && b.children.length > 0) return 1;
-
-  return collator.compare(a.data.file, b.data.file);
-}

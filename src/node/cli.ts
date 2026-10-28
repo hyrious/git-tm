@@ -1,7 +1,7 @@
 import type { Server } from 'node:http';
 
 import sade from 'sade';
-import { name, description, version } from '../package.json';
+import { name, description, version } from '../../package.json';
 import { launchServer } from './main';
 
 sade(`${name} [repo]`)

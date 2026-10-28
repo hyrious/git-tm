@@ -1,12 +1,17 @@
-import type { Writable } from '../base';
-import type { ThemeColorTable } from '../shiki';
+import type { Writable } from '../common/base';
 import type { Git } from './git';
+import type { Files } from './files';
+import type { Editor } from './editor';
+import type { Commits } from './commits';
 
 import { disposableStore, type DisposableType, type IDisposable } from '@wopjs/disposable';
 
 export interface IMain {
   readonly git: Git;
-  setTitle(title: string): void;
+  readonly files: Files;
+  readonly editor: Editor;
+  readonly commits: Commits;
+  setTitle(filename?: string): void;
 }
 
 export abstract class Widget implements IDisposable {

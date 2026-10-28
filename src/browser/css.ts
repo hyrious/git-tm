@@ -1,6 +1,5 @@
 import { disposableStore, type IDisposable } from '@wopjs/disposable';
-import { reactiveMap } from 'value-enhancer/collections';
-import { combine, subscribe } from 'value-enhancer';
+import { batch, combine, reactiveMap } from '@embra/reactivity';
 import { isTruthy } from '@wopjs/cast';
 
 class StyleMod implements IDisposable {
@@ -13,7 +12,7 @@ class StyleMod implements IDisposable {
 
   constructor() {
     document.adoptedStyleSheets = [this.sheet];
-    this._store.add(subscribe(combine([this.staticRules.$, this.dynamicRules.$]), ([map, map2]) => {
+    this._store.add(combine([this.staticRules.$, this.dynamicRules.$]).subscribe(([map, map2]) => {
       let code = Array.from(map.values()).join('\n');
       for (let a of map2.values()) if (a) {
         code += '\n' + a;
@@ -31,7 +30,7 @@ class StyleMod implements IDisposable {
       this.dynamicRules.set(id, Object.entries(sheet).map(([sel, spec]) => spec && _stringify(sel, spec)).filter(isTruthy).join('\n'));
     };
     const dispose = () => {
-      this.dynamicRules.delete(id);
+      batch(() => this.dynamicRules.delete(id));
     };
     return { set, dispose };
   }

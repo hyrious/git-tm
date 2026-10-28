@@ -1,3 +1,5 @@
+import type { IMain } from './widget';
+
 import { disposableStore, type IDisposable } from '@wopjs/disposable';
 import { appendChild, listen } from '@wopjs/dom';
 import { Commits } from './commits';
@@ -7,7 +9,8 @@ import { Editor } from './editor';
 import { Files } from './files';
 import { Git } from './git';
 import { Status } from './status';
-import { Widget, type IMain } from './widget';
+import { Search } from './search';
+import { bindKeys } from './keybindings';
 
 // Remove browser.js from HTML.
 document.querySelector('script')?.remove();
@@ -29,10 +32,10 @@ class Main implements IMain, IDisposable {
     readonly $statusbar: HTMLElement,
   };
 
-  readonly files: Widget;
-  readonly editor: Widget;
-  readonly commits: Widget;
-  readonly status: Widget;
+  readonly files: Files;
+  readonly editor: Editor;
+  readonly commits: Commits;
+  readonly status: Status;
 
   constructor(readonly git: Git) {
     const $titlebar = appendChild(document.body, $('header.titlebar'));
@@ -48,13 +51,31 @@ class Main implements IMain, IDisposable {
     this.editor = new Editor($editors, this);
     this.commits = new Commits($auxSidebar, this);
     this.status = new Status($statusbar, this);
+    this._store.add(new Search(document.body, this));
+
+    const canNavigate = (e: KeyboardEvent) => {
+      const target = e.target;
+      if (target instanceof HTMLElement) {
+        if (target.closest('input, textarea, select, dialog[open], [role="menu"]')) return false;
+        const view = this.editor.view;
+        if (target.isContentEditable && !(view?.state.readOnly && view.contentDOM.contains(target))) return false;
+      }
+      return true;
+    };
+    this._store.add(bindKeys(window, {
+      'b': { when: canNavigate, run: () => this.status.openBranches() },
+      'd': { when: canNavigate, run: () => this.status.openChanges() },
+      'e': { when: canNavigate, run: () => { this.status.closeMenus(); this.files.focus(); } },
+      'c': { when: canNavigate, run: () => { this.status.closeMenus(); this.commits.focus(); } },
+      'v': { when: canNavigate, run: () => { this.status.closeMenus(); this.editor.focus(); } },
+    }));
 
     // Render.
     const viewport = window.visualViewport || window;
     this._store.add(listen(viewport as Window, 'resize', () => this.layout()));
     this.layout();
 
-    this.setTitle(git.repo.split(/[\\/]/g).pop() || git.repo);
+    this.setTitle();
   }
 
   layout() {
@@ -103,7 +124,9 @@ class Main implements IMain, IDisposable {
     this.commits.layout();
   }
 
-  setTitle(title: string): void {
+  setTitle(filename?: string): void {
+    const repo = this.git.repo.split(/[\\/]/g).pop() || this.git.repo;
+    const title = filename ? `${filename} — ${repo}` : repo;
     this.dom.$titlebar.textContent = title;
     document.title = title;
   }
