@@ -433,7 +433,7 @@ export class Editor extends Widget {
     const request = ++this.navigationRequest;
     try {
       let id = location.snapshot;
-      if (id !== 'working-tree') {
+      if (id) {
         id = (await this.root.git.resolveRevision(id)).hash;
       }
       if (request !== this.navigationRequest || this.target$.disposed) return;
@@ -493,8 +493,8 @@ export class Editor extends Widget {
     const request = ++this.urlRequest;
     const shorten = (ref: string) => this.root.git.resolveRevision(ref).then(revision => revision.shortHash).catch(() => ref);
     void Promise.all([
-      location.snapshot === 'working-tree' ? location.snapshot : shorten(location.snapshot),
-      location.diff ? shorten(location.diff.base) : undefined,
+      location.snapshot ? shorten(location.snapshot) : '',
+      location.diff?.base ? shorten(location.diff.base) : '',
     ]).then(([snapshot, base]) => {
       if (request === this.urlRequest && !this.target$.disposed) {
         this.writeURL(formatLocation({
@@ -557,7 +557,7 @@ export class Editor extends Widget {
     const path = target?.kind === EditorTargetKind.Diff ? target.file.newPath : target?.path;
     this.root.setTitle(path?.split('/').pop());
     if (target?.kind === EditorTargetKind.Diff) {
-      const base = target.range.base.slice(0, 7);
+      const base = target.range.base.slice(0, 7) || 'Working Directory';
       const revision = target.range.target?.slice(0, 7) ?? 'Working Directory';
       this.$header.textContent = `${target.file.oldPath} → ${path} — ${base} → ${revision}`;
     } else {

@@ -70,6 +70,7 @@ export interface Revision {
 }
 
 export interface DiffRange {
+  /** An empty base means the working directory. */
   readonly base: string;
   /** A missing target means the working directory. */
   readonly target?: string;
@@ -89,6 +90,7 @@ export interface Diff {
   readonly files: DiffFile[];
 }
 
+/** The working directory has an empty ID. */
 export function snapshotId(snapshot: Snapshot): string {
-  return snapshot.kind === SnapshotKind.Commit ? snapshot.hash : 'working-tree';
+  return snapshot.kind === SnapshotKind.Commit ? snapshot.hash : '';
 }

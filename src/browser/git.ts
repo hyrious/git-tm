@@ -135,7 +135,7 @@ export class Git extends Disposable {
       if (this.history[i] == null) await this.touch(i + 1);
       const snapshot = this.history[i];
       if (snapshot && snapshotId(snapshot) === id) return i;
-      if (id === 'working-tree') return;
+      if (id === '') return;
     }
   }
 
@@ -190,7 +190,8 @@ export class Git extends Disposable {
   }
 
   async diffContents(range: DiffRange, file: DiffFile): Promise<[Uint8Array, Uint8Array]> {
-    const base = { ref: range.base, path: file.oldPath };
+    const baseRevision: Record<string, string> = range.base ? { ref: range.base } : { workingTree: '1' };
+    const base = { ...baseRevision, path: file.oldPath };
     const revision: Record<string, string> = range.target ? { ref: range.target } : { workingTree: '1' };
     const target = { ...revision, path: file.newPath };
     return Promise.all([

@@ -97,14 +97,15 @@ export function formatLocation(location: NavigationLocation): string {
   } else if (anchor.column !== head.column) {
     end = `-${head.column}`;
   }
-  const revision = snapshot === 'working-tree' ? 'WORKTREE' : snapshot;
+  const revision = snapshot;
   const prefix = source === FileSource.External ? 'external:' : '';
   const diff = location.diff;
-  const revisions = diff ? `${diff.base}..${revision}` : revision;
+  const revisions = diff ? `${diff.base}..${revision}:` : revision ? `${revision}:` : '';
   const files = diff && diff.oldPath !== path ? `${encodePath(diff.oldPath)}=>${file}` : file;
   const status = diff && diff.status !== 'M' ? `:${diff.status[0]}` : '';
   const binary = diff?.binary ? ':binary' : '';
-  return `#${revisions}:${prefix}${files}:${anchor.line}:${anchor.column}${end}${status}${binary}`;
+  const position = anchor.line === 1 && anchor.column === 1 && !end ? '' : `:${anchor.line}:${anchor.column}${end}`;
+  return `#${revisions}${prefix}${files}${position}${status}${binary}`;
 }
 
 function encodePath(path: string): string {
@@ -112,31 +113,31 @@ function encodePath(path: string): string {
 }
 
 export function parseLocation(hash: string): NavigationLocation | undefined {
-  const match = /^#(?:([\da-f]{4,64})\.\.)?(WORKTREE|[\da-f]{4,64}):(external:)?([^:]+):(\d+):(\d+)(?:-(?:(\d+):)?(\d+))?(?::([AMDTU]|[RC]\d*))?(?::(binary))?$/i.exec(hash);
+  const match = /^#(?:(?:([\da-f]{4,64})?(\.\.))?([\da-f]{4,64})?:)?(external:)?([^:]+)(?::(\d+):(\d+)(?:-(?:(\d+):)?(\d+))?)?(?::([AMDTU]|[RC]\d*))?(?::(binary))?$/i.exec(hash);
   if (!match) return;
-  const [, base, revision, external, files, line, column, endLine, endColumn, status, binary] = match;
-  const anchor = { line: Number(line), column: Number(column) };
+  const [, base, range, revision, external, files, line, column, endLine, endColumn, status, binary] = match;
+  const anchor = { line: Number(line ?? 1), column: Number(column ?? 1) };
   const head = {
     line: endLine ? Number(endLine) : anchor.line,
     column: endColumn ? Number(endColumn) : anchor.column,
   };
   if (![anchor.line, anchor.column, head.line, head.column].every(n => Number.isSafeInteger(n) && n > 0)) return;
-  if (base && external) return;
-  if (!base && (status || binary)) return;
+  if (range && external) return;
+  if (!range && (status || binary)) return;
   try {
     const paths = files.split('=>');
-    if (paths.length > (base ? 2 : 1) || paths.some(path => !path)) return;
+    if (paths.length > (range ? 2 : 1) || paths.some(path => !path)) return;
     const oldPath = decodeURIComponent(paths[0]);
     const path = decodeURIComponent(paths.at(-1)!);
     let diff: DiffLocation | undefined;
-    if (base) {
+    if (range) {
       diff = {
-        base: base.toLowerCase(), oldPath,
+        base: base?.toLowerCase() ?? '', oldPath,
         status: status?.[0].toUpperCase() ?? 'M', binary: !!binary,
       };
     }
     return {
-      snapshot: revision.toUpperCase() === 'WORKTREE' ? 'working-tree' : revision.toLowerCase(),
+      snapshot: revision?.toLowerCase() ?? '',
       source: external ? FileSource.External : FileSource.Snapshot,
       path, anchor, head, diff,
     };
