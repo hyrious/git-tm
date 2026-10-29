@@ -66,6 +66,7 @@ interface TextSearch {
 interface CommitSearch {
   readonly mode: SearchMode.Commits;
   readonly results: CommitResult[];
+  readonly compare: boolean;
 }
 
 interface SymbolSearch {
@@ -118,7 +119,6 @@ export class Search extends Widget {
   private origin: NavigationEntry | undefined;
   private session: SearchSession | undefined;
   private symbolStep: SymbolStep | undefined;
-  private command = 0;
 
   override initialize(this: Writable<this>): void {
     this.$dialog = appendChild(this.parent, $('dialog.search'));
@@ -147,6 +147,7 @@ export class Search extends Widget {
       'Mod+Shift+f': () => this.toggle(SearchMode.Global),
       'Mod+p': () => this.toggle(SearchMode.Files),
       'Mod+k': () => this.toggle(SearchMode.Commits),
+      'Mod+Shift+k': { when: () => this.root.editor.canCompare(), run: () => this.toggle(SearchMode.Commits, true) },
       'Mod+r': { when: canQuerySymbols, run: () => this.toggle(SearchMode.FileSymbols) },
       'Mod+Alt+o': { when: canQuerySymbols, run: () => this.toggle(SearchMode.FileSymbols) },
       'Mod+Shift+r': { when: canQuerySymbols, run: () => this.toggle(SearchMode.WorkspaceSymbols) },
@@ -213,24 +214,14 @@ export class Search extends Widget {
     }
   }
 
-  toggle(mode: Mode): void {
-    if (this.session && this.state.mode === mode) {
+  toggle(mode: Mode, compare = false): void {
+    const sameMode = this.state.mode === mode;
+    const sameCompare = this.state.mode !== SearchMode.Commits || this.state.compare === compare;
+    if (this.session && sameMode && sameCompare) {
       this.close();
       return;
     }
-    if (isSymbolMode(mode)) {
-      void this.toggleSymbols(mode);
-    } else {
-      this.open(mode);
-    }
-  }
-
-  private async toggleSymbols(mode: SymbolMode): Promise<void> {
-    const command = ++this.command;
-    const view = this.root.editor.editor, selection = view?.state.selection;
-    if (!await this.root.symbolIndex.wait()) return;
-    if (command !== this.command || view !== this.root.editor.editor || !view?.hasFocus || !selection?.eq(view.state.selection)) return;
-    this.open(mode);
+    this.open(mode, compare);
   }
 
   private show(): void {
@@ -239,9 +230,9 @@ export class Search extends Widget {
     this.$input.select();
   }
 
-  private open(mode: Mode): void {
+  private open(mode: Mode, compare = false): void {
     this.close();
-    this.state = createState(mode);
+    this.state = createState(mode, compare);
     const memory = mode === SearchMode.File || mode === SearchMode.Global ? this.memory.get(mode) : undefined;
     const view = this.root.editor.editor;
     const selection = view?.state.selection;
@@ -284,7 +275,6 @@ export class Search extends Widget {
   }
 
   close(restore = true, location?: string | FileLocation): void {
-    this.command++;
     if (!this.session && !this.$dialog.open) return;
     if (this.state.mode === SearchMode.File || this.state.mode === SearchMode.Global) {
       this.memory.set(this.state.mode, {
@@ -320,7 +310,12 @@ export class Search extends Widget {
   }
 
   private setLabel(mode: Mode): void {
-    const label = mode === SearchMode.SymbolLocations ? `Locations of ${this.symbolStep!.name}` : labels[mode];
+    let label = labels[mode];
+    if (mode === SearchMode.SymbolLocations) {
+      label = `Locations of ${this.symbolStep!.name}`;
+    } else if (this.state.mode === SearchMode.Commits && this.state.compare) {
+      label = 'Compare file with commit';
+    }
     this.$dialog.ariaLabel = label;
     this.$input.ariaLabel = label;
     if (mode === SearchMode.Files) {
@@ -343,7 +338,7 @@ export class Search extends Widget {
     const session = this.session;
     if (!session || this.composing) return;
     const generation = ++this.generation;
-    const state = createState(this.state.mode), input = this.$input.value;
+    const state = createState(this.state.mode, this.state.mode === SearchMode.Commits && this.state.compare), input = this.$input.value;
     this.selected = selected;
     this.$list.scrollTop = 0;
     this.$note.textContent = '';
@@ -403,7 +398,9 @@ export class Search extends Widget {
   select(index: number): void {
     if (this.publishedGeneration !== this.generation || !this.state.results[index]) return;
     this.selected = index;
-    for (const row of this.$list.children) row.ariaSelected = String((row as HTMLElement).dataset.index === String(index));
+    for (const row of this.$list.children) {
+      row.ariaSelected = String((row as HTMLElement).dataset.index === String(index));
+    }
     this.$input.setAttribute('aria-activedescendant', `search-result-${index}`);
     this.$list.children[index]?.scrollIntoView({ block: 'nearest' });
     const state = this.state;
@@ -411,11 +408,16 @@ export class Search extends Widget {
     if (state.mode === SearchMode.File) {
       const match = state.results[index]?.match;
       if (match) this.root.editor.reveal(match.from, match.to);
-    } else if (state.mode === SearchMode.Files) this.root.editor.openFile(state.results[index].path, true);
-    else if (state.mode === SearchMode.Global) {
+    } else if (state.mode === SearchMode.Files) {
+      const path = state.results[index].path;
+      if (!this.$input.value && path === this.root.editor.path) return;
+      this.root.editor.openFile(path, true);
+    } else if (state.mode === SearchMode.Global) {
       const { path, match } = state.results[index];
       this.root.editor.openFile({ source: FileSource.Snapshot, path, from: match.from, to: match.to }, true);
-    } else if (isSymbolSearch(state)) this.root.editor.openFile(state.results[index], true);
+    } else if (isSymbolSearch(state)) {
+      this.root.editor.openFile(state.results[index], true);
+    }
   }
 
   accept(): void {
@@ -439,7 +441,8 @@ export class Search extends Widget {
       }
       case SearchMode.Commits:
         this.close(false);
-        this.root.commits.accept(state.results[index].index);
+        if (state.compare) this.root.editor.compare(state.results[index].snapshot);
+        else this.root.commits.accept(state.results[index].index);
         break;
       case SearchMode.File: {
         const { match } = state.results[index];
@@ -473,8 +476,11 @@ export class Search extends Widget {
       const task = this.root.symbolIndex.current;
       const index = task?.snapshot === snapshot && !task.pending ? task.index : undefined;
       if (mode === SearchMode.WorkspaceSymbols) {
+        if (task?.snapshot !== snapshot) return;
+        await task.ready;
+        if (!active()) return;
         if (task?.error) throw task.error;
-        if (index) session.groups = index.groups;
+        session.groups = task.index.groups;
         if (active() && !session.groups.size) this.fallbackToText();
       } else if (!document || !supportsSymbols(document.file.path)) {
         if (!document || !state || mode === SearchMode.References || mode === SearchMode.Related) {
@@ -536,7 +542,7 @@ export class Search extends Widget {
 
   private showError(error: unknown, generation: number): void {
     if (generation !== this.generation) return;
-    this.publish(createState(this.state.mode), generation);
+    this.publish(createState(this.state.mode, this.state.mode === SearchMode.Commits && this.state.compare), generation);
     this.$note.textContent = error instanceof Error ? error.message : 'Could not complete search.';
     this.$input.setAttribute('aria-invalid', String(error instanceof SyntaxError));
   }
@@ -565,7 +571,14 @@ export class Search extends Widget {
 
   private searchFiles(state: FileSearch, paths: readonly string[], input: string): void {
     if (!input) {
-      for (const path of paths.slice(0, limit)) state.results.push({ path, score: 100 });
+      const current = this.origin?.location.path ?? this.root.editor.path;
+      if (current != null && paths.includes(current)) {
+        state.results.push({ path: current, score: 100 });
+      }
+      for (const path of paths) {
+        if (state.results.length >= limit) break;
+        if (path !== current) state.results.push({ path, score: 100 });
+      }
       return;
     }
     for (const path of paths) {
@@ -638,6 +651,7 @@ export class Search extends Widget {
       }
       const snapshot = git.history[index];
       if (pattern) pattern.lastIndex = 0;
+      if (state.compare && snapshot?.kind !== SnapshotKind.Commit) continue;
       if (snapshot && (!pattern || pattern.test(snapshot.kind === SnapshotKind.WorkingTree ? 'Working Directory' : snapshot.message))) {
         state.results.push({ snapshot, index });
         if (state.results.length >= limit) return;
@@ -660,6 +674,9 @@ export class Search extends Widget {
     if (complete && this.selected > 0) this.$list.children[this.selected]?.scrollIntoView({ block: 'nearest' });
     this.scrollbars.update(true);
     this.$note.textContent = '';
+    if (state.mode === SearchMode.WorkspaceSymbols && this.root.symbolIndex.current?.pending) {
+      this.$note.textContent = 'Indexing…';
+    }
     if (complete && state.mode !== SearchMode.File && state.mode !== SearchMode.Commits && state.results.length) this.select(this.selected);
     if (state.mode === SearchMode.File) {
       this.root.editor.highlight(state.results.map(result => result.match));
@@ -711,12 +728,12 @@ export class Search extends Widget {
   }
 }
 
-function createState(mode: Mode): SearchState {
+function createState(mode: Mode, compare = false): SearchState {
   switch (mode) {
     case SearchMode.Files: return { mode, results: [] };
     case SearchMode.File:
     case SearchMode.Global: return { mode, results: [], previewed: false };
-    case SearchMode.Commits: return { mode, results: [] };
+    case SearchMode.Commits: return { mode, results: [], compare };
     default: return { mode, results: [] };
   }
 }

@@ -26,9 +26,15 @@ export class SymbolIndex {
     }
   }
 
-  async load(git: Git, snapshot: Snapshot, active: () => boolean, progress: (percent: number) => void): Promise<void> {
+  async load(
+    git: Git,
+    snapshot: Snapshot,
+    signal: AbortSignal,
+    progress: (percent: number) => void,
+  ): Promise<void> {
+    const active = () => !signal.aborted;
     const [result, paths] = await Promise.all([
-      git.symbols(snapshot, { action: SymbolAction.Index }),
+      git.symbols(snapshot, { action: SymbolAction.Index }, signal),
       git.paths(snapshot),
     ]);
     if (!active()) return;
@@ -68,6 +74,7 @@ export class SymbolIndex {
 interface IndexTask {
   readonly snapshot: Snapshot;
   readonly index: SymbolIndex;
+  readonly controller: AbortController;
   ready: Promise<void>;
   pending: boolean;
   error: unknown;
@@ -77,24 +84,28 @@ interface IndexTask {
 export class SnapshotIndex extends Disposable {
   readonly progress$ = this._register(writable<number | undefined | null>(null));
   current: IndexTask | undefined;
-  private queue = Promise.resolve();
 
   constructor(git: Git) {
     super();
-    this._register(() => { this.current = undefined; });
+    this._register(() => {
+      this.current?.controller.abort();
+      this.current = undefined;
+    });
     this._register(git.snapshot$.subscribe(snapshot => {
+      this.current?.controller.abort();
       this.current = undefined;
       this.progress$.set(snapshot ? undefined : null);
       if (!snapshot) return;
       const task: IndexTask = {
-        snapshot, index: new SymbolIndex(), ready: Promise.resolve(), pending: true, error: undefined,
+        snapshot, index: new SymbolIndex(), controller: new AbortController(),
+        ready: Promise.resolve(), pending: true, error: undefined,
       };
       this.current = task;
       const active = () => this.current === task;
-      task.ready = this.queue.then(async () => {
+      task.ready = Promise.resolve().then(async () => {
         if (!active()) return;
         try {
-          await task.index.load(git, snapshot, active, percent => this.progress$.set(percent));
+          await task.index.load(git, snapshot, task.controller.signal, percent => this.progress$.set(percent));
         } catch (error) {
           task.error = error;
           if (active()) console.error(error);
@@ -103,24 +114,7 @@ export class SnapshotIndex extends Disposable {
           if (active()) this.progress$.set(null);
         }
       });
-      this.queue = task.ready;
     }));
-  }
-
-  async wait(): Promise<boolean> {
-    const task = this.current;
-    if (!task) return false;
-    if (task.pending) {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      try {
-        const ready = await Promise.race([
-          task.ready.then(() => true),
-          new Promise<boolean>(resolve => { timer = setTimeout(() => resolve(false), 1000); }),
-        ]);
-        if (!ready) return false;
-      } finally { clearTimeout(timer); }
-    }
-    return this.current === task;
   }
 }
 

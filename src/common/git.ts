@@ -13,7 +13,6 @@ export interface Commit {
   readonly authorEmail?: string;
   readonly commitDate?: Date;
   readonly refNames: string[];
-  readonly shortStat?: CommitShortStat;
 }
 
 export interface CommitShortStat {

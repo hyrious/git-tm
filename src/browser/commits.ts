@@ -1,6 +1,6 @@
 import type { DisposableType } from '@wopjs/disposable';
 
-import { snapshotId, type Snapshot } from '../common/git';
+import { SnapshotKind, snapshotId, type Snapshot } from '../common/git';
 import { Graph, type GraphTrack } from '../common/graph';
 import { noop } from '@wopjs/cast';
 import { appendChild, svgElement } from '@wopjs/dom';
@@ -10,7 +10,7 @@ import { styleMod } from './css';
 import { $, clearElement, onCustomEvent } from './dom';
 import { Scrollable, type ItemRenderer } from './scrollable';
 import { Widget } from './widget';
-import { createCommitContent, renderCommitContent, type CommitContent } from './commit-content';
+import { createCommitContent, renderCommitContent, renderCommitStat, type CommitContent } from './commit-content';
 import { bindKeys } from './keybindings';
 
 const ITEM_HEIGHT = 48;
@@ -126,6 +126,9 @@ export class Commits extends Widget implements ItemRenderer<Item, Template> {
     if (item !== PlaceHolder) {
       _renderTracks(template.$tracks, item.tracks);
       renderCommitContent(template, item.snapshot);
+      if (item.snapshot.kind === SnapshotKind.Commit) {
+        return this.root.git.shortStat(item.snapshot, stat => renderCommitStat(template.$changes, stat));
+      }
     } else {
       clearElement(template.$tracks);
       renderCommitContent(template, undefined);

@@ -1,5 +1,6 @@
 import type { FileContents, FileReference, SymbolQuery, SymbolResults } from '../common/symbols';
-import type { Commit, Diff, DiffFile, DiffRange, IBasicGitInfo, LsTreeElement, Ref, Revision, Snapshot, WorkingTree } from '../common/git';
+import type { Disposer } from '@wopjs/disposable';
+import type { Commit, CommitShortStat, Diff, DiffFile, DiffRange, IBasicGitInfo, LsTreeElement, Ref, Revision, Snapshot, WorkingTree } from '../common/git';
 
 import flru from 'flru';
 import { seq } from '@wopjs/async-seq';
@@ -9,6 +10,7 @@ import { Disposable } from '../common/disposable';
 import { SnapshotKind, snapshotId } from '../common/git';
 import { FileSource } from '../common/symbols';
 import { Tree, type TreeNode } from '../common/tree';
+import { CommitStats } from './commit-stats';
 
 export class Git extends Disposable {
 
@@ -28,6 +30,7 @@ export class Git extends Disposable {
   private readonly cache = flru<Promise<FileContents>>(20);
   private readonly diffs = flru<Promise<Diff>>(20);
   private readonly revisions = flru<Promise<Revision>>(20);
+  private readonly stats = this._register(new CommitStats((ref, signal) => _api('/stat', { ref }, signal)));
 
   private touching = 1;
   private navigation = 0;
@@ -82,6 +85,13 @@ export class Git extends Disposable {
     if (tree) {
       const newTree = Tree.toggle(tree, node => node.data.file === path);
       this.tree$.set(newTree);
+    }
+  }
+
+  expand(path: string): void {
+    const tree = this.tree$.value;
+    if (tree) {
+      this.tree$.set(Tree.toggle(tree, node => node.collapsible && node.collapsed && path.startsWith(node.data.file + '/')));
     }
   }
 
@@ -142,12 +152,12 @@ export class Git extends Disposable {
     return result;
   }
 
-  symbols(snapshot: Snapshot, query: SymbolQuery): Promise<SymbolResults> {
+  symbols(snapshot: Snapshot, query: SymbolQuery, signal?: AbortSignal): Promise<SymbolResults> {
     return _api('/symbols', {
       ..._query(snapshot), action: query.action,
       path: query.file?.path ?? '', source: query.file?.source ?? FileSource.Snapshot,
       version: query.version ?? '', position: query.position ?? 0,
-    });
+    }, signal);
   }
 
   blob(path: string, snapshot: Snapshot): Promise<Uint8Array> {
@@ -175,12 +185,17 @@ export class Git extends Disposable {
     return result;
   }
 
+  shortStat(commit: Commit, listener: (stat: CommitShortStat) => void): Disposer {
+    return this.stats.subscribe(commit.hash, listener);
+  }
+
   async diffContents(range: DiffRange, file: DiffFile): Promise<[Uint8Array, Uint8Array]> {
+    const base = { ref: range.base, path: file.oldPath };
+    const revision: Record<string, string> = range.target ? { ref: range.target } : { workingTree: '1' };
+    const target = { ...revision, path: file.newPath };
     return Promise.all([
-      file.status === 'A' ? new Uint8Array() : _blob('/show', { ref: range.base, path: file.oldPath }),
-      file.status === 'D' ? new Uint8Array() : range.target
-        ? _blob('/show', { ref: range.target, path: file.newPath })
-        : _blob('/show', { workingTree: '1', path: file.newPath })
+      file.status === 'A' ? new Uint8Array() : _contents(base).then(file => file.bytes),
+      file.status === 'D' ? new Uint8Array() : _contents(target).then(file => file.bytes),
     ]);
   }
 
@@ -228,34 +243,25 @@ function _migrate(tree$: Writable<Tree<LsTreeElement> | undefined>, tree: Tree<L
   tree$.value = tree;
 }
 
-async function _api<T>(path: string, query: Record<string, string | number> = {}): Promise<T> {
-  const url = new URL(path, location.origin);
-  for (const key in query) {
-    url.searchParams.set(key, query[key].toString());
-  }
-  const r = await fetch(url.href);
-  if (r.ok) {
-    return r.json();
-  }
-  throw new Error(await r.text());
+async function _api<T>(path: string, query: Record<string, string | number> = {}, signal?: AbortSignal): Promise<T> {
+  const response = await _request(path, query, signal);
+  return response.json();
 }
 
-async function _blob(path: string, query: Record<string, string | number> = {}): Promise<Uint8Array> {
+async function _request(path: string, query: Record<string, string | number>, signal?: AbortSignal): Promise<Response> {
   const url = new URL(path, location.origin);
-  for (const key in query) {
-    url.searchParams.set(key, query[key].toString());
+  for (const [key, value] of Object.entries(query)) {
+    url.searchParams.set(key, String(value));
   }
-  const r = await fetch(url.href);
-  if (r.ok) {
-    return r.arrayBuffer().then(a => new Uint8Array(a));
-  }
-  throw new Error(await r.text());
+  const response = await fetch(url, { signal });
+  if (!response.ok) throw new Error(await response.text());
+  return response;
 }
 
 async function _contents(query: Record<string, string | number>): Promise<FileContents> {
-  const url = new URL('/show', location.origin);
-  for (const [key, value] of Object.entries(query)) url.searchParams.set(key, String(value));
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(await response.text());
-  return { bytes: new Uint8Array(await response.arrayBuffer()), version: response.headers.get('X-File-Version') ?? '' };
+  const response = await _request('/show', query);
+  return {
+    bytes: new Uint8Array(await response.arrayBuffer()),
+    version: response.headers.get('X-File-Version') ?? '',
+  };
 }

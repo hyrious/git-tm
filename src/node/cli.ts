@@ -15,7 +15,7 @@ sade(`${name} [repo]`)
       server = await launchServer({ repo });
     } catch (err) {
       console.error(err + '');
-      if (err.stderr) {
+      if (err?.stderr) {
         console.error(err.stderr);
       }
       process.exitCode = 1;
@@ -24,7 +24,7 @@ sade(`${name} [repo]`)
 
     if (opt.verbose) server.on('request', (req, res) => {
       const t0 = performance.now();
-      req.once('end', () => {
+      res.once('finish', () => {
         const duration = performance.now() - t0;
         const url = req.url || '/';
         console.log(`${res.statusCode} - ${duration.toFixed(2)}ms - ${req.method} ${url}`);

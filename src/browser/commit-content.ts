@@ -38,7 +38,7 @@ export function renderCommitContent({ $message, $changes, $author, $date, $refs 
       const end = snapshot.message.indexOf('\n');
       $message.textContent = snapshot.message.slice(0, end >= 0 ? end : undefined);
       $message.title = snapshot.message;
-      $changes.textContent = _renderChanges(snapshot.shortStat);
+      renderCommitStat($changes, undefined);
       $author.textContent = snapshot.authorName || null;
       $author.title = snapshot.authorEmail || '';
       $date.textContent = renderDate(snapshot.authorDate);
@@ -89,9 +89,9 @@ function _renderRefs($refs: HTMLElement, refNames: readonly string[]): void {
   }
 }
 
-function _renderChanges(stat: CommitShortStat | undefined): string | null {
+export function renderCommitStat(element: HTMLElement, stat: CommitShortStat | undefined): void {
   const n = stat?.files;
-  return n && n > 1 ? String(n) : null;
+  element.textContent = n && n > 1 ? String(n) : null;
 }
 
 export function renderDate(date: Date | undefined): string | null {

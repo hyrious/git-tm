@@ -11,7 +11,7 @@ import { bracketMatching, foldGutter, foldKeymap, LanguageDescription } from '@c
 import { languages } from '@codemirror/language-data';
 import { unifiedMergeView } from '@codemirror/merge';
 import { FileSource } from '../common/symbols';
-import { snapshotId } from '../common/git';
+import { SnapshotKind, snapshotId } from '../common/git';
 import { $, onCustomEvent } from './dom';
 import { modernDark, modernLight } from './editor-theme';
 import { Widget } from './widget';
@@ -30,6 +30,8 @@ export interface DiffTarget {
   readonly snapshot: Snapshot;
   readonly range: DiffRange;
   readonly file: DiffFile;
+  readonly restore?: NavigationEntry;
+  readonly record?: boolean;
 }
 
 interface EditorDocument {
@@ -112,10 +114,10 @@ export class Editor extends Widget {
     }));
     this._register(onCustomEvent<DiffTarget>('editor.diff', e => {
       if (e.detail.snapshot === this.root.git.snapshot$.value) {
-        this.remember(false);
+        this.remember(true);
         this.history.leave();
         this.updateNavigation();
-        target$.set(e.detail);
+        target$.set({ ...e.detail, record: true });
       }
     }));
     this._register(this.root.git.snapshot$.subscribe(snapshot => {
@@ -144,6 +146,9 @@ export class Editor extends Widget {
         this.setHeader(undefined);
         this.showMessage('Select a file to view its contents.');
         return;
+      }
+      if (target.kind === EditorTargetKind.File && target.source === FileSource.Snapshot && !target.preview) {
+        this.root.files.reveal(target.path);
       }
       if (target.saved) {
         this.clear();
@@ -175,9 +180,18 @@ export class Editor extends Widget {
             if (focused) this.focus();
             return;
           }
-          if ((target.kind === EditorTargetKind.Diff && target.file.insertions == null) || contents.some(b => b.subarray(0, 8000).includes(0))) {
+          const binaryDiff = target.kind === EditorTargetKind.Diff && target.file.insertions == null;
+          const binaryContents = contents.some(bytes => bytes.subarray(0, 8000).includes(0));
+          if (binaryDiff || binaryContents) {
             this.showMessage('File is binary.');
-            if (!target.preview) this.writeURL('');
+            if (!target.preview) {
+              if (target.kind === EditorTargetKind.Diff) {
+                this.remember(target.record ?? false);
+                this.updateURL();
+              } else {
+                this.writeURL('');
+              }
+            }
             return;
           }
           const decoder = new TextDecoder();
@@ -204,16 +218,14 @@ export class Editor extends Widget {
             else this.$header.textContent = `${target.path} — File changed; run the symbol command again.`;
             if (!target.preview) this.focus();
           } else if (focused) this.focus();
-          if (target.kind === EditorTargetKind.File && target.restore) {
+          if (target.restore) {
             this.restoreSelection(target.restore);
             this.focus();
           }
           this.restoring = false;
           if (target.preview) return;
-          if (target.kind === EditorTargetKind.File) {
-            this.remember(target.record);
-            this.updateURL();
-          } else this.writeURL('');
+          this.remember(target.record ?? false);
+          this.updateURL();
         } catch (error) {
           this.restoring = false;
           if (!target$.disposed && request === this.navigationRequest) {
@@ -250,6 +262,35 @@ export class Editor extends Widget {
       location: location,
       record: !preview, preview,
     });
+  }
+
+  canCompare(): boolean {
+    const target = this.target$.value;
+    return target?.kind === EditorTargetKind.File && target.source === FileSource.Snapshot
+      && target === this.displayedTarget && this.editor != null;
+  }
+
+  compare(base: Snapshot): void {
+    const target = this.target$.value;
+    if (!this.canCompare() || target?.kind !== EditorTargetKind.File || base.kind !== SnapshotKind.Commit) return;
+    if (snapshotId(base) === snapshotId(target.snapshot)) return;
+    const { path, snapshot } = target;
+    void (async () => {
+      try {
+        const exists = (await this.root.git.paths(base)).includes(path);
+        if (this.target$.disposed || this.target$.value !== target) return;
+        window.dispatchEvent(new CustomEvent<DiffTarget>('editor.diff', {
+          detail: {
+            kind: EditorTargetKind.Diff, snapshot,
+            range: { base: base.hash, target: snapshot.kind === SnapshotKind.Commit ? snapshot.hash : undefined },
+            file: { status: exists ? 'M' : 'A', oldPath: path, newPath: path, insertions: 0, deletions: 0 },
+          }
+        }));
+        this.focus();
+      } catch {
+        if (!this.target$.disposed && this.target$.value === target) this.showMessage('Could not read diff.');
+      }
+    })();
   }
 
   contents(target: FileTarget & { readonly preview?: boolean; }): Promise<FileContents> {
@@ -304,6 +345,30 @@ export class Editor extends Widget {
 
   capture(): NavigationEntry | undefined {
     const document = this.document, editor = this.editor;
+    const target = this.displayedTarget;
+    if (target?.kind === EditorTargetKind.Diff) {
+      let anchor = { line: 1, column: 1 }, head = { line: 1, column: 1 };
+      if (editor) {
+        const selection = editor.state.selection.main;
+        anchor = positionAt(editor.state.doc, selection.anchor);
+        head = positionAt(editor.state.doc, selection.head);
+      }
+      return {
+        location: {
+          source: FileSource.Snapshot,
+          path: target.file.newPath,
+          snapshot: snapshotId(target.snapshot),
+          anchor, head,
+          diff: {
+            base: target.range.base,
+            oldPath: target.file.oldPath,
+            status: target.file.status[0],
+            binary: target.file.insertions == null,
+          },
+        },
+        saved: undefined,
+      };
+    }
     if (!document || !editor) return;
     const { anchor, head } = editor.state.selection.main;
     return {
@@ -367,7 +432,15 @@ export class Editor extends Widget {
     this.urlRequest++;
     const request = ++this.navigationRequest;
     try {
-      const id = location.snapshot === 'working-tree' ? location.snapshot : (await this.root.git.resolveRevision(location.snapshot)).hash;
+      let id = location.snapshot;
+      if (id !== 'working-tree') {
+        id = (await this.root.git.resolveRevision(id)).hash;
+      }
+      if (request !== this.navigationRequest || this.target$.disposed) return;
+      let base = location.diff?.base;
+      if (base && !/^(?:[\da-f]{40}|[\da-f]{64})$/i.test(base)) {
+        base = (await this.root.git.resolveRevision(base)).hash;
+      }
       if (request !== this.navigationRequest || this.target$.disposed) return;
       const index = await this.root.git.findSnapshot(id);
       if (request !== this.navigationRequest || this.target$.disposed) return;
@@ -379,7 +452,21 @@ export class Editor extends Widget {
       this.changingSnapshot = false;
       window.dispatchEvent(new CustomEvent('scroll-to', { detail: index }));
       const snapshot = this.root.git.snapshot$.value!;
-      this.target$.set({ kind: EditorTargetKind.File, snapshot, source: location.source, path: location.path, restore: entry, record });
+      if (location.diff) {
+        const { oldPath, status, binary } = location.diff;
+        this.target$.set({
+          kind: EditorTargetKind.Diff, snapshot,
+          range: { base: base!, target: snapshot.kind === SnapshotKind.Commit ? snapshot.hash : undefined },
+          file: { status, oldPath, newPath: location.path, insertions: binary ? null : 0, deletions: binary ? null : 0 },
+          restore: entry, record,
+        });
+      } else {
+        this.target$.set({
+          kind: EditorTargetKind.File, snapshot,
+          source: location.source, path: location.path,
+          restore: entry, record,
+        });
+      }
     } catch (error) {
       if (request === this.navigationRequest && !this.target$.disposed) {
         this.history.leave();
@@ -404,11 +491,17 @@ export class Editor extends Widget {
     const location = this.capture()?.location;
     if (!location) return;
     const request = ++this.urlRequest;
-    if (location.snapshot === 'working-tree') this.writeURL(formatLocation(location));
-    else this.root.git.resolveRevision(location.snapshot).then(revision => {
-      if (request === this.urlRequest && !this.target$.disposed) this.writeURL(formatLocation({ ...location, snapshot: revision.shortHash }));
-    }).catch(() => {
-      if (request === this.urlRequest && !this.target$.disposed) this.writeURL(formatLocation(location));
+    const shorten = (ref: string) => this.root.git.resolveRevision(ref).then(revision => revision.shortHash).catch(() => ref);
+    void Promise.all([
+      location.snapshot === 'working-tree' ? location.snapshot : shorten(location.snapshot),
+      location.diff ? shorten(location.diff.base) : undefined,
+    ]).then(([snapshot, base]) => {
+      if (request === this.urlRequest && !this.target$.disposed) {
+        this.writeURL(formatLocation({
+          ...location, snapshot,
+          diff: location.diff ? { ...location.diff, base: base! } : undefined,
+        }));
+      }
     });
   }
 
@@ -432,6 +525,7 @@ export class Editor extends Widget {
     return [
       EditorState.readOnly.of(true),
       EditorState.tabSize.of(4),
+      EditorView.editorAttributes.of({ class: 'scrollbar-host' }),
       EditorView.contentAttributes.of({ 'aria-label': label }),
       EditorView.updateListener.of(update => {
         if (update.selectionSet || update.docChanged) {
@@ -462,7 +556,13 @@ export class Editor extends Widget {
     this.displayedTarget = target;
     const path = target?.kind === EditorTargetKind.Diff ? target.file.newPath : target?.path;
     this.root.setTitle(path?.split('/').pop());
-    this.$header.textContent = target?.kind === EditorTargetKind.Diff ? `${target.file.oldPath} → ${path}` : path ?? null;
+    if (target?.kind === EditorTargetKind.Diff) {
+      const base = target.range.base.slice(0, 7);
+      const revision = target.range.target?.slice(0, 7) ?? 'Working Directory';
+      this.$header.textContent = `${target.file.oldPath} → ${path} — ${base} → ${revision}`;
+    } else {
+      this.$header.textContent = path ?? null;
+    }
     this.$header.title = this.$header.textContent ?? '';
   }
 

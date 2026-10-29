@@ -119,7 +119,7 @@ export class Changes extends Widget {
         $button.title = 'Changes against first parent';
       }
       $button.title += ' (d)';
-      this.renderStat(snapshot?.kind === SnapshotKind.Commit ? snapshot.shortStat : undefined);
+      this.renderStat();
       if (snapshot) void this.load();
     }));
     this._register(() => this.request++);

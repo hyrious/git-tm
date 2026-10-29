@@ -10,7 +10,15 @@ export interface Position {
   readonly column: number;
 }
 
+export interface DiffLocation {
+  readonly base: string;
+  readonly oldPath: string;
+  readonly status: string;
+  readonly binary: boolean;
+}
+
 export interface NavigationLocation extends FileReference {
+  readonly diff?: DiffLocation;
   readonly snapshot: string;
   readonly anchor: Position;
   readonly head: Position;
@@ -62,6 +70,8 @@ export class NavigationHistory {
 function sameLocation(a: NavigationEntry, b: NavigationEntry): boolean {
   const left = a.location, right = b.location;
   return left.snapshot === right.snapshot && left.source === right.source && left.path === right.path
+    && left.diff?.base === right.diff?.base && left.diff?.oldPath === right.diff?.oldPath
+    && left.diff?.status === right.diff?.status && left.diff?.binary === right.diff?.binary
     && a.saved?.version === b.saved?.version
     && left.anchor.line === right.anchor.line && left.anchor.column === right.anchor.column
     && left.head.line === right.head.line && left.head.column === right.head.column;
@@ -80,29 +90,55 @@ export function offsetAt(doc: Text, position: Position): number {
 
 export function formatLocation(location: NavigationLocation): string {
   const { snapshot, source, path, anchor, head } = location;
-  const file = path.split('/').map(encodeURIComponent).join('/');
+  const file = encodePath(path);
   let end = '';
   if (anchor.line !== head.line) {
     end = `-${head.line}:${head.column}`;
   } else if (anchor.column !== head.column) {
     end = `-${head.column}`;
   }
-  const revision = snapshot === 'working-tree' ? 'wt' : snapshot;
+  const revision = snapshot === 'working-tree' ? 'WORKTREE' : snapshot;
   const prefix = source === FileSource.External ? 'external:' : '';
-  return `#${revision}:${prefix}${file}:${anchor.line}:${anchor.column}${end}`;
+  const diff = location.diff;
+  const revisions = diff ? `${diff.base}..${revision}` : revision;
+  const files = diff && diff.oldPath !== path ? `${encodePath(diff.oldPath)}=>${file}` : file;
+  const status = diff && diff.status !== 'M' ? `:${diff.status[0]}` : '';
+  const binary = diff?.binary ? ':binary' : '';
+  return `#${revisions}:${prefix}${files}:${anchor.line}:${anchor.column}${end}${status}${binary}`;
+}
+
+function encodePath(path: string): string {
+  return path.split('/').map(encodeURIComponent).join('/');
 }
 
 export function parseLocation(hash: string): NavigationLocation | undefined {
-  const match = /^#(wt|[\da-f]{4,64}):(external:)?([^:]+):(\d+):(\d+)(?:-(?:(\d+):)?(\d+))?$/i.exec(hash);
+  const match = /^#(?:([\da-f]{4,64})\.\.)?(WORKTREE|[\da-f]{4,64}):(external:)?([^:]+):(\d+):(\d+)(?:-(?:(\d+):)?(\d+))?(?::([AMDTU]|[RC]\d*))?(?::(binary))?$/i.exec(hash);
   if (!match) return;
-  const anchor = { line: Number(match[4]), column: Number(match[5]) };
-  const head = { line: match[6] ? Number(match[6]) : anchor.line, column: match[7] ? Number(match[7]) : anchor.column };
+  const [, base, revision, external, files, line, column, endLine, endColumn, status, binary] = match;
+  const anchor = { line: Number(line), column: Number(column) };
+  const head = {
+    line: endLine ? Number(endLine) : anchor.line,
+    column: endColumn ? Number(endColumn) : anchor.column,
+  };
   if (![anchor.line, anchor.column, head.line, head.column].every(n => Number.isSafeInteger(n) && n > 0)) return;
+  if (base && external) return;
+  if (!base && (status || binary)) return;
   try {
+    const paths = files.split('=>');
+    if (paths.length > (base ? 2 : 1) || paths.some(path => !path)) return;
+    const oldPath = decodeURIComponent(paths[0]);
+    const path = decodeURIComponent(paths.at(-1)!);
+    let diff: DiffLocation | undefined;
+    if (base) {
+      diff = {
+        base: base.toLowerCase(), oldPath,
+        status: status?.[0].toUpperCase() ?? 'M', binary: !!binary,
+      };
+    }
     return {
-      snapshot: match[1].toLowerCase() === 'wt' ? 'working-tree' : match[1].toLowerCase(),
-      source: match[2] ? FileSource.External : FileSource.Snapshot,
-      path: decodeURIComponent(match[3]), anchor, head,
+      snapshot: revision.toUpperCase() === 'WORKTREE' ? 'working-tree' : revision.toLowerCase(),
+      source: external ? FileSource.External : FileSource.Snapshot,
+      path, anchor, head, diff,
     };
   } catch { }
 }

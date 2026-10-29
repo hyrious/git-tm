@@ -23,22 +23,31 @@ interface SnapshotLanguageHost extends ts.LanguageServiceHost {
 export class Symbols {
   private readonly projects: Project[] = [];
   private readonly cache = flru<SymbolResults>(100);
+  private syntax: ts.LanguageService | undefined;
   private revision = -1;
 
   constructor(private readonly files: SnapshotFiles) { }
 
   dispose(): void {
+    this.syntax?.dispose();
+    this.syntax = undefined;
     for (const project of this.projects) project.service.dispose();
     this.projects.length = 0;
     this.cache.clear(false);
   }
 
   query(query: SymbolQuery): SymbolResults {
+    if (query.action === SymbolAction.FileSymbols) {
+      if (!query.file) return { locations: [], stale: false };
+      const contents = this.files.contents(query.file);
+      if (contents.version !== query.version) return { locations: [], stale: true };
+      return this.search(query);
+    }
     this.synchronize();
     if (query.file && this.files.contents(query.file).version !== query.version) return { locations: [], stale: true };
     const key = JSON.stringify([
       query.action, query.file?.source, query.file?.path, query.version,
-      query.action === SymbolAction.FileSymbols ? 0 : query.position ?? 0,
+      query.position ?? 0,
     ]);
     let result = this.cache.get(key);
     if (!result) {
@@ -105,17 +114,17 @@ export class Symbols {
         }
       }
     } else if (file) {
-      const projects = this.projects.filter(project => project.service.getProgram()?.getSourceFile(file));
       if (query.action === SymbolAction.FileSymbols) {
         const visit = (item: ts.NavigationTree, container: string) => {
           for (const span of item.nameSpan ? [item.nameSpan] : item.spans) add(file, span, item.text, item.kind, container);
           for (const child of item.childItems ?? []) visit(child, container ? `${container}.${item.text}` : item.text);
         };
-        const project = projects.find(project => project.roots.includes(file)) ?? projects[0];
-        if (project) {
-          for (const item of project.service.getNavigationTree(file).childItems ?? []) visit(item, '');
-        }
+        this.syntax ??= this.createService(
+          [], { allowJs: true, jsx: ts.JsxEmit.Preserve }, undefined, ts.LanguageServiceMode.Syntactic,
+        );
+        for (const item of this.syntax.getNavigationTree(file).childItems ?? []) visit(item, '');
       } else {
+        const projects = this.projects.filter(project => project.service.getProgram()?.getSourceFile(file));
         const position = query.position ?? 0;
         const text = files.readFile(file) ?? '';
         if (!Number.isInteger(position) || position < 0 || position > text.length) throw new Error('Invalid symbol position');
@@ -200,6 +209,15 @@ export class Symbols {
   }
 
   private addProject(roots: string[], options: ts.CompilerOptions, references?: readonly ts.ProjectReference[]): void {
+    this.projects.push({ roots, service: this.createService(roots, options, references) });
+  }
+
+  private createService(
+    roots: string[],
+    options: ts.CompilerOptions,
+    references?: readonly ts.ProjectReference[],
+    mode = ts.LanguageServiceMode.Semantic,
+  ): ts.LanguageService {
     const files = this.files;
     const host: SnapshotLanguageHost = {
       useSourceOfProjectReferenceRedirect: () => true,
@@ -218,7 +236,7 @@ export class Symbols {
       readDirectory: files.readDirectory, realpath: files.realpath,
       useCaseSensitiveFileNames: () => ts.sys.useCaseSensitiveFileNames,
     };
-    this.projects.push({ roots, service: ts.createLanguageService(host) });
+    return ts.createLanguageService(host, undefined, mode);
   }
 
 }

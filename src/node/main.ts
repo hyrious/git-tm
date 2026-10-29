@@ -34,7 +34,7 @@ export async function launchServer(options?: ServerOptions): Promise<http.Server
         server.listen(++port, host);
       } else {
         server.removeListener('error', onError);
-        reject();
+        reject(e);
       }
     };
     server.on('error', onError);
@@ -47,6 +47,7 @@ export async function launchServer(options?: ServerOptions): Promise<http.Server
 
 function catchAll(handler: (req: http.IncomingMessage, res: http.ServerResponse) => Promise<void>): http.RequestListener {
   return (req, res) => handler(req, res).catch(e => {
+    if (res.destroyed) return;
     res.writeHead(500);
     res.end(e ? e.message : 'Unknown error');
   });
@@ -87,6 +88,9 @@ async function handleRequest(repo: Repository, workspace: Workspace, req: http.I
       await sendLog(req, res, repo, skip);
     } else if (pathname === '/revision') {
       send(req, res, JSON.stringify(await repo.resolveRevision(query?.get('ref') ?? '')), 'application/json');
+    } else if (pathname === '/stat') {
+      const stat = await repo.shortStat(query?.get('ref') ?? '', responseSignal(res));
+      send(req, res, JSON.stringify(stat), 'application/json');
     } else if (pathname === '/tree') { // /tree?ref=HEAD
       const ref = query?.get('workingTree') === '1' ? undefined : query?.get('ref') || 'HEAD';
       await sendTree(req, res, repo, ref);
@@ -119,7 +123,7 @@ async function handleRequest(repo: Repository, workspace: Workspace, req: http.I
         file: file ? { source, path: file } : undefined,
         version: query?.get('version') ?? undefined,
         position: Number(query?.get('position') ?? 0),
-      });
+      }, responseSignal(res));
       send(req, res, JSON.stringify(result), 'application/json');
     } else {
       res.statusCode = 404;
@@ -131,6 +135,14 @@ async function handleRequest(repo: Repository, workspace: Workspace, req: http.I
   }
 }
 
+function responseSignal(res: http.ServerResponse): AbortSignal {
+  const controller = new AbortController();
+  res.once('close', () => {
+    if (!res.writableEnded) controller.abort();
+  });
+  return controller.signal;
+}
+
 async function sendTree(req: http.IncomingMessage, res: http.ServerResponse, repo: Repository, ref?: string): Promise<void> {
   const raw = ref ? await repo.lstree(ref, { recursive: true }) : await repo.workingTree();
   const tree = makeTree(raw);
@@ -139,12 +151,15 @@ async function sendTree(req: http.IncomingMessage, res: http.ServerResponse, rep
 
 async function sendLog(req: http.IncomingMessage, res: http.ServerResponse, repo: Repository, skip?: number): Promise<void> {
   const { head, workingTree } = await repo.getState();
+  const [refs, commits, total] = await Promise.all([
+    repo.getRefs(),
+    repo.log({ skip, head: head.commit }),
+    repo.logSize(head.commit),
+  ]);
   const info: IBasicGitInfo = {
     head, workingTree,
     root: repo.root,
-    refs: await repo.getRefs(),
-    commits: await repo.log({ shortStats: true, skip, head: head.commit }),
-    total: await repo.logSize(head.commit),
+    refs, commits, total,
   };
   send(req, res, JSON.stringify(info), 'application/json');
 }

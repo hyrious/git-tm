@@ -15,7 +15,6 @@ export interface LogOptions {
   readonly skip?: number;
   /** Default {@link STEP}. */
   readonly limit?: number | { readonly id: string; };
-  readonly shortStats?: boolean;
   readonly head?: string;
 }
 
@@ -70,7 +69,7 @@ export class Repository {
     return [...new Set(stdout.split('\0').filter(isTruthy))];
   }
 
-  private async workingPath(file: string): Promise<string> {
+  private async workingPath(file: string, directories: Set<string>): Promise<string> {
     const parts = file.split('/');
     if (path.isAbsolute(file) || parts.some(part => part === '..' || part === '.git')) {
       throw new Error('Invalid file path');
@@ -78,16 +77,19 @@ export class Repository {
     let parent = this.root;
     for (const part of parts.slice(0, -1)) {
       parent = path.join(parent, part);
+      if (directories.has(parent)) continue;
       if ((await fs.lstat(parent)).isSymbolicLink()) throw new Error('Cannot traverse a symbolic link');
+      directories.add(parent);
     }
     return path.join(this.root, file);
   }
 
   async workingTree(): Promise<LsTreeElement[]> {
     const elements: LsTreeElement[] = [];
+    const directories = new Set<string>();
     for (const file of await this.workingFiles()) {
       try {
-        const stat = await fs.lstat(await this.workingPath(file));
+        const stat = await fs.lstat(await this.workingPath(file, directories));
         elements.push({
           mode: stat.isSymbolicLink() ? '120000' : stat.isDirectory() ? '160000' : '100644',
           type: stat.isDirectory() ? 'commit' : 'blob',
@@ -172,10 +174,6 @@ export class Repository {
       args.push(`--skip=${options.skip}`);
     }
 
-    if (options?.shortStats) {
-      args.push('--shortstat', '--diff-merges=first-parent');
-    }
-
     const result = await this.exec(args);
     return parseGitCommits(result.stdout);
   }
@@ -185,6 +183,13 @@ export class Repository {
     if (head) args.push(head);
     const result = await this.exec(args);
     return Number.parseInt(result.stdout);
+  }
+
+  async shortStat(ref: string, signal?: AbortSignal): Promise<CommitShortStat> {
+    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(ref)) throw new Error('Invalid revision');
+    const args = ['show', '--format=', '--shortstat', '--diff-merges=first-parent', '--end-of-options', ref, '--'];
+    const result = await this.exec(args, false, signal);
+    return parseGitDiffShortStat(result.stdout);
   }
 
   private _emptyTree: string | undefined;
@@ -205,7 +210,7 @@ export class Repository {
   }
 
   async getCommit(ref: string): Promise<Commit> {
-    const result = await this.exec(['show', '-s', '--decorate=full', '--shortstat', `--format=${COMMIT_FORMAT}`, '-z', '--end-of-options', ref]);
+    const result = await this.exec(['show', '-s', '--decorate=full', `--format=${COMMIT_FORMAT}`, '-z', '--end-of-options', ref]);
     const commits = parseGitCommits(result.stdout);
     if (commits.length === 0) {
       return Promise.reject<Commit>('bad commit format');
@@ -213,10 +218,10 @@ export class Repository {
     return commits[0];
   }
 
-  async exec(args: string[], buffer: true): Promise<ExecResult<Buffer>>;
-  async exec(args: string[], buffer?: false): Promise<ExecResult<string>>;
-  async exec(args: string[], buffer?: boolean): Promise<ExecResult<string | Buffer>> {
-    const options: SpawnOptions = { cwd: this.root, stdio: ['ignore', null, null] };
+  async exec(args: string[], buffer: true, signal?: AbortSignal): Promise<ExecResult<Buffer>>;
+  async exec(args: string[], buffer?: false, signal?: AbortSignal): Promise<ExecResult<string>>;
+  async exec(args: string[], buffer?: boolean, signal?: AbortSignal): Promise<ExecResult<string | Buffer>> {
+    const options: SpawnOptions = { cwd: this.root, stdio: ['ignore', null, null], signal };
 
     options.env = Object.assign({}, process.env, {
       LC_ALL: 'en_US.UTF-8',
@@ -281,14 +286,14 @@ async function exec(child: ChildProcess): Promise<ExecResult<Buffer>> {
   }
 }
 
-const commitRegex = /([0-9a-f]{40})\n(.*)\n(.*)\n(.*)\n(.*)\n(.*)\n(.*)(?:\n([^]*?))?(?:\x00)(?:\n((?:.*)files? changed(?:.*))$)?/gm;
+const commitRegex = /([0-9a-f]{40})\n(.*)\n(.*)\n(.*)\n(.*)\n(.*)\n(.*)(?:\n([^]*?))?\x00/gm;
 
 function parseGitCommits(data: string): Commit[] {
   const commits: Commit[] = [];
 
   let match: RegExpExecArray | null;
   while ((match = commitRegex.exec(data))) {
-    let [, hash, authorName, authorEmail, authorDate, commitDate, parents, refNames, message, shortStat] = match;
+    let [, hash, authorName, authorEmail, authorDate, commitDate, parents, refNames, message] = match;
 
     if (message.endsWith('\n')) {
       message = message.slice(0, -1);
@@ -305,7 +310,6 @@ function parseGitCommits(data: string): Commit[] {
       authorEmail: ` ${authorEmail}`.slice(1),
       commitDate: new Date(Number(commitDate) * 1000),
       refNames: refNames.split(',').map(e => e.trim()).filter(isTruthy),
-      shortStat: shortStat ? parseGitDiffShortStat(shortStat) : undefined
     });
   }
 

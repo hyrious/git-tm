@@ -4,7 +4,7 @@ import type { FileReference, FileContents } from '../common/symbols';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { Repository } from './repository';
 import { FileSource, supportsSymbols } from '../common/symbols';
@@ -24,8 +24,6 @@ export class SnapshotFiles {
   private readonly files = new Map<string, CachedFile>();
   private readonly external = new Map<string, CachedFile>();
   private readonly directories = new Set<string>();
-  private readonly session = randomUUID();
-  private counter = 0;
   private ref: string | undefined;
   private initialized = false;
 
@@ -60,8 +58,8 @@ export class SnapshotFiles {
     for (const [file, entry] of next) {
       this.entries.set(file, entry);
       for (let dir = path.dirname(file); this.inside(dir); dir = path.dirname(dir)) {
+        if (this.directories.has(dir)) break;
         this.directories.add(dir);
-        if (dir === this.repo.root) break;
       }
     }
   }
@@ -148,7 +146,7 @@ export class SnapshotFiles {
       return;
     }
     if (previous?.bytes.equals(bytes)) return previous;
-    const version = entry && this.ref ? entry.object : `${this.session}-${++this.counter}`;
+    const version = entry && this.ref ? entry.object : createHash('sha256').update(bytes).digest('hex');
     const result = { bytes, text: decode(bytes), version };
     cache.set(file, result);
     if (previous || entry && !this.ref) this.revision++;
@@ -208,18 +206,29 @@ export class SnapshotFiles {
       .map(child => path.basename(child));
   };
 
-  readDirectory = (dir: string, extensions?: readonly string[], excludes?: readonly string[], includes?: readonly string[], depth?: number): string[] => {
-    const match = (file: string, pattern: string) => {
-      const absolute = path.resolve(dir, pattern);
-      return path.matchesGlob(file, absolute) || !path.extname(absolute) && path.matchesGlob(file, path.join(absolute, '**/*'));
+  readDirectory = (
+    dir: string,
+    extensions?: readonly string[],
+    excludes?: readonly string[],
+    includes?: readonly string[],
+    depth?: number,
+  ): string[] => {
+    const patterns = (values: readonly string[]) => values.flatMap(value => {
+      const absolute = path.resolve(dir, value);
+      if (path.extname(absolute)) return [absolute];
+      return [absolute, path.join(absolute, '**/*')];
+    });
+    const excluded = patterns(excludes ?? []);
+    const included = patterns(includes ?? ['**/*']);
+    const matches = (file: string, patterns: readonly string[]) => {
+      return patterns.some(pattern => path.matchesGlob(file, pattern));
     };
     return [...this.entries.keys()].filter(file => {
       const relative = path.relative(dir, file);
-      return relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative)
-        && (depth == null || relative.split(path.sep).length <= depth)
-        && (!extensions || extensions.some(ext => file.endsWith(ext)))
-        && !(excludes ?? []).some(pattern => match(file, pattern))
-        && (includes ?? ['**/*']).some(pattern => match(file, pattern));
+      if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) return false;
+      if (depth != null && relative.split(path.sep).length > depth) return false;
+      if (extensions && !extensions.some(ext => file.endsWith(ext))) return false;
+      return !matches(file, excluded) && matches(file, included);
     });
   };
 }

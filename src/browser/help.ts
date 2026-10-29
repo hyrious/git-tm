@@ -36,6 +36,7 @@ export class Help extends Widget {
         [`${mod} + Shift + F`, 'Find in all files'],
         [`${mod} + P`, 'Find file'],
         [`${mod} + K`, 'Find commit'],
+        [`${mod} + Shift + K`, 'Compare file with commit'],
       ]],
       ['Symbols (editor focused)', [
         ['Ctrl + -', 'Go back'],

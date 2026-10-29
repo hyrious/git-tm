@@ -13,6 +13,7 @@ import { i, ic } from './icon';
 import { renderFileIcon } from './file-icon';
 import { styleMod } from './css';
 import { bindKeys } from './keybindings';
+import { scheduleInNextFrame } from './raf';
 
 type Item = TreeNode<LsTreeElement>;
 type Template = {
@@ -29,6 +30,7 @@ export class Files extends Widget implements ItemRenderer<Item, Template> {
 
   readonly scrollable: Scrollable<Item>;
   readonly selected$: Readable<number | undefined>;
+  readonly selectedPath$ = this._register(writable<string | undefined>(undefined));
 
   override initialize(this: Writable<this>): void {
     this.$header = appendChild(this.parent, $('.files-header'));
@@ -48,8 +50,7 @@ export class Files extends Widget implements ItemRenderer<Item, Template> {
       items$,
       renderer: this,
     }));
-    const selectedPath$ = this._register(writable<string | undefined>(undefined));
-    this.selected$ = this._register(combine([items$, selectedPath$], (items, path) => {
+    this.selected$ = this._register(combine([items$, this.selectedPath$], (items, path) => {
       const index = items.findIndex(item => item.data.file === path);
       return index >= 0 ? index : undefined;
     }));
@@ -58,7 +59,7 @@ export class Files extends Widget implements ItemRenderer<Item, Template> {
     this._register(this.scrollable.onDidChangeFocus(index => {
       const item = items$.value[index];
       if (item) {
-        selectedPath$.set(item.data.file);
+        this.selectedPath$.set(item.data.file);
         if (item.data.type === 'blob') {
           window.dispatchEvent(new CustomEvent('editor.open', { detail: item.data.file }));
         }
@@ -122,6 +123,16 @@ export class Files extends Widget implements ItemRenderer<Item, Template> {
 
   focus(): void {
     this.scrollable.focus(this.selected$.value ?? 0);
+  }
+
+  reveal(path: string): void {
+    this.root.git.expand(path);
+    this.selectedPath$.set(path);
+    scheduleInNextFrame(() => {
+      if (this.selectedPath$.disposed) return;
+      const selected = this.selected$.value;
+      if (selected != null) this.scrollable.reveal(selected);
+    });
   }
 
   override layout(): void {

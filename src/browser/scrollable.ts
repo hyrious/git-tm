@@ -149,6 +149,7 @@ export class Scrollable<Item, Template = HTMLDivElement> extends Disposable {
       for (const i of removed) {
         const e = children[i];
         if (e) {
+          this._itemEffects.flush(e.data);
           children[i] = null;
           pool.release(e.dom);
           detach(e.dom);
@@ -163,6 +164,7 @@ export class Scrollable<Item, Template = HTMLDivElement> extends Disposable {
           continue;
         }
         if (e) {
+          this._itemEffects.flush(e.data);
           children[i] = null;
           pool.release(e.dom);
         }
@@ -187,7 +189,8 @@ export class Scrollable<Item, Template = HTMLDivElement> extends Disposable {
         const item = items[i];
         const e = children[i];
         if (e) {
-          this._itemEffects.flush(item);
+          this._itemEffects.flush(e.data);
+          e.data = item;
           this._itemEffects.set(item, options.renderer.renderItem(e.dom, item));
         }
       }
