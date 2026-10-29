@@ -189,14 +189,14 @@ export class Git extends Disposable {
     return this.stats.subscribe(commit.hash, listener);
   }
 
-  async diffContents(range: DiffRange, file: DiffFile): Promise<[Uint8Array, Uint8Array]> {
+  async diffContents(range: DiffRange, file: DiffFile): Promise<[FileContents, FileContents]> {
     const baseRevision: Record<string, string> = range.base ? { ref: range.base } : { workingTree: '1' };
     const base = { ...baseRevision, path: file.oldPath };
     const revision: Record<string, string> = range.target ? { ref: range.target } : { workingTree: '1' };
     const target = { ...revision, path: file.newPath };
     return Promise.all([
-      file.status === 'A' ? new Uint8Array() : _contents(base).then(file => file.bytes),
-      file.status === 'D' ? new Uint8Array() : _contents(target).then(file => file.bytes),
+      file.status === 'A' ? { bytes: new Uint8Array(), version: '' } : _contents(base),
+      file.status === 'D' ? { bytes: new Uint8Array(), version: '' } : _contents(target),
     ]);
   }
 

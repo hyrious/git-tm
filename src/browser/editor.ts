@@ -9,7 +9,7 @@ import { Decoration, EditorView, ViewPlugin, drawSelection, highlightActiveLine,
 import { defaultKeymap } from '@codemirror/commands';
 import { bracketMatching, foldGutter, foldKeymap, LanguageDescription } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
-import { unifiedMergeView } from '@codemirror/merge';
+import { unifiedMergeView, uncollapseUnchanged } from '@codemirror/merge';
 import { FileSource } from '../common/symbols';
 import { SnapshotKind, snapshotId } from '../common/git';
 import { $, onCustomEvent } from './dom';
@@ -167,21 +167,21 @@ export class Editor extends Widget {
           const file = target.kind === EditorTargetKind.File ? await this.contents(target) : undefined;
           const contents = target.kind === EditorTargetKind.Diff
             ? await this.root.git.diffContents(target.range, target.file)
-            : [file!.bytes];
+            : [file!];
           if (target$.disposed || request !== this.navigationRequest) return;
           this.setHeader(target);
           const mime = target.kind === EditorTargetKind.File ? imageType(target.path) : undefined;
           if (target.kind === EditorTargetKind.File && mime) {
             const focused = this.$body.contains(document.activeElement);
             this.clear();
-            this.image = new ImagePreview(this.$body, this.root.status.$image, contents[0], mime, target.path, () => this.showMessage('Could not load image.'));
+            this.image = new ImagePreview(this.$body, this.root.status.$image, contents[0].bytes, mime, target.path, () => this.showMessage('Could not load image.'));
             this.path = path;
             if (!target.preview) this.writeURL('');
             if (focused) this.focus();
             return;
           }
           const binaryDiff = target.kind === EditorTargetKind.Diff && target.file.insertions == null;
-          const binaryContents = contents.some(bytes => bytes.subarray(0, 8000).includes(0));
+          const binaryContents = contents.some(({ bytes }) => bytes.subarray(0, 8000).includes(0));
           if (binaryDiff || binaryContents) {
             this.showMessage('File is binary.');
             if (!target.preview) {
@@ -195,7 +195,7 @@ export class Editor extends Widget {
             return;
           }
           const decoder = new TextDecoder();
-          const docs = contents.map(b => decoder.decode(b));
+          const docs = contents.map(file => decoder.decode(file.bytes));
           const focused = this.$body.contains(document.activeElement);
           this.clear();
           if (target.kind === EditorTargetKind.Diff) {
@@ -207,6 +207,12 @@ export class Editor extends Widget {
                 unifiedMergeView({ original: docs[0], mergeControls: false, collapseUnchanged: { margin: 5 } }),
               ],
             });
+            if (target.file.status !== 'D') {
+              this.document = {
+                file: { source: FileSource.Snapshot, path: target.file.newPath },
+                snapshot: target.snapshot, version: contents[1].version,
+              };
+            }
           } else {
             this.editor = new EditorView({ parent: this.$body, doc: docs[0], extensions: this.extensions(target.path, target.path) });
             this.document = { file: { source: target.source, path: target.path }, snapshot: target.snapshot, version: file!.version };
@@ -239,7 +245,7 @@ export class Editor extends Widget {
     this.openURL();
   }
 
-  openFile(_location: string | FileLocation, preview: boolean): void {
+  openFile(_location: string | FileLocation, preview: boolean, origin = this.previewSession?.target): void {
     const snapshot = this.root.git.snapshot$.value;
     if (!snapshot) return;
     let location: FileLocation | undefined, source: FileSource, path: string;
@@ -250,6 +256,16 @@ export class Editor extends Widget {
       location = _location;
       source = _location.source;
       path = _location.path;
+    }
+    const diff = origin?.kind === EditorTargetKind.Diff ? origin : this.displayedTarget;
+    const diffDocument = diff?.saved?.document ?? (diff === this.displayedTarget ? this.document : undefined);
+    if (location && diff?.kind === EditorTargetKind.Diff && diff.snapshot === snapshot
+      && diffDocument?.file.source === source && diffDocument.file.path === path
+      && (!location.version || location.version === diffDocument.version)) {
+      if (this.displayedTarget !== diff && diff.saved) this.target$.set({ ...diff, preview, record: false });
+      if (preview) this.reveal(location.from, location.to);
+      else this.jump(location.from, location.to);
+      return;
     }
     const document = this.document;
     if (preview && this.editor && document?.snapshot === snapshot && document.file.source === source && document.file.path === path
@@ -330,7 +346,7 @@ export class Editor extends Widget {
       if (session.origin) this.history.visit(session.origin);
       this.history.leave();
       this.updateNavigation();
-      this.openFile(location, false);
+      this.openFile(location, false, session.target);
     } else if (restore && (!session.target || session.target.snapshot === this.root.git.snapshot$.value)) {
       this.target$.set(session.target ? { ...session.target } : undefined);
     }
@@ -597,7 +613,15 @@ export class Editor extends Widget {
     if (!editor) return;
     from = Math.min(from, editor.state.doc.length);
     to = Math.min(to, editor.state.doc.length);
-    editor.dispatch({ selection: { anchor: from, head: to }, effects: EditorView.scrollIntoView(from, { y: 'center' }) });
+    const effects: StateEffect<unknown>[] = [EditorView.scrollIntoView(from, { y: 'center' })];
+    if (this.displayedTarget?.kind === EditorTargetKind.Diff) {
+      for (const decorations of editor.state.facet(EditorView.decorations)) {
+        if (typeof decorations !== 'function') {
+          decorations.between(Math.min(from, to), Math.max(from, to), start => { effects.push(uncollapseUnchanged.of(start)); });
+        }
+      }
+    }
+    editor.dispatch({ selection: { anchor: from, head: to }, effects });
   }
 
   highlight(matches: readonly { from: number; to: number; }[]): void {
