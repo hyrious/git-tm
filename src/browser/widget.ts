@@ -4,8 +4,9 @@ import type { Files } from './files';
 import type { Status } from './status';
 import type { Editor } from './editor';
 import type { Commits } from './commits';
+import type { SnapshotIndex } from './symbol-index';
 
-import { disposableStore, type DisposableType, type IDisposable } from '@wopjs/disposable';
+import { Disposable } from '../common/disposable';
 
 export interface IMain {
   readonly git: Git;
@@ -13,18 +14,13 @@ export interface IMain {
   readonly editor: Editor;
   readonly status: Status;
   readonly commits: Commits;
+  readonly symbolIndex: SnapshotIndex;
   setTitle(filename?: string): void;
 }
 
-export abstract class Widget implements IDisposable {
-  private readonly _store = disposableStore();
-  _register<T extends DisposableType>(disposable: T) {
-    return this._store.add(disposable);
-  }
-
-  dispose() { this._store.dispose(); }
-
+export abstract class Widget extends Disposable {
   constructor(readonly parent: HTMLElement, readonly root: IMain) {
+    super();
     queueMicrotask(() => this.initialize());
   }
 

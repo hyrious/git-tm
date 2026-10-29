@@ -3,10 +3,12 @@ import type { CommitShortStat, Diff, Snapshot } from '../common/git';
 import type { DiffTarget } from './editor';
 
 import { appendChild, listen } from '@wopjs/dom';
+import { noop } from '@wopjs/cast';
+import { EditorTargetKind } from './editor';
+import { SnapshotKind } from '../common/git';
 import { $, clearElement } from './dom';
 import { Widget } from './widget';
 import { i } from './icon';
-import { noop } from '@wopjs/cast';
 import { MenuNavigation } from './menu-navigation';
 import { Scrollbars } from './scrollbars';
 import { bindKeys } from './keybindings';
@@ -68,7 +70,7 @@ export class Changes extends Widget {
     const open = ($item: HTMLElement, focus: boolean) => {
       const file = this.diff?.files[Number($item.dataset.index)];
       if (file && this.diff && this.snapshot && this.snapshot === this.root.git.snapshot$.value) {
-        const detail: DiffTarget = { kind: 'diff', snapshot: this.snapshot, range: this.diff.range, file };
+        const detail: DiffTarget = { kind: EditorTargetKind.Diff, snapshot: this.snapshot, range: this.diff.range, file };
         window.dispatchEvent(new CustomEvent('editor.diff', { detail }));
         this.close();
         if (focus) this.root.editor.focus();
@@ -109,10 +111,15 @@ export class Changes extends Widget {
       this.items.length = 0;
       this.snapshot = snapshot;
       $button.disabled = !snapshot;
-      $button.title = !snapshot?.parents.length ? 'Changes against empty tree' :
-        snapshot.kind === 'working-tree' ? 'Changes against HEAD (tracked files only)' : 'Changes against first parent';
+      if (!snapshot?.parents.length) {
+        $button.title = 'Changes against empty tree';
+      } else if (snapshot.kind === SnapshotKind.WorkingTree) {
+        $button.title = 'Changes against HEAD (tracked files only)';
+      } else {
+        $button.title = 'Changes against first parent';
+      }
       $button.title += ' (d)';
-      this.renderStat(snapshot?.kind === 'commit' ? snapshot.shortStat : undefined);
+      this.renderStat(snapshot?.kind === SnapshotKind.Commit ? snapshot.shortStat : undefined);
       if (snapshot) void this.load();
     }));
     this._register(() => this.request++);

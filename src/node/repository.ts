@@ -2,13 +2,13 @@
 
 import type { ChildProcess, SpawnOptions } from 'node:child_process';
 import type { Disposer } from '@wopjs/disposable';
-import type { Commit, CommitShortStat, Diff, DiffFile, DiffRange, LsTreeElement, Ref, WorkingTree } from '../common/git';
+import type { Commit, CommitShortStat, Diff, DiffFile, DiffRange, LsTreeElement, Ref, Revision, WorkingTree } from '../common/git';
 
 import cp from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { isTruthy } from '@wopjs/cast';
-import { RefType } from '../common/git';
+import { RefType, SnapshotKind } from '../common/git';
 import { STEP } from '../common/base';
 
 export interface LogOptions {
@@ -59,7 +59,8 @@ export class Repository {
     return {
       head: { type: RefType.Head, name, commit },
       workingTree: staged || unstaged || untracked || !commit ? {
-        kind: 'working-tree', parents: commit ? [commit] : [], staged, unstaged, untracked,
+        kind: SnapshotKind.WorkingTree, date: new Date(), parents: commit ? [commit] : [],
+        staged, unstaged, untracked,
       } : undefined,
     };
   }
@@ -99,13 +100,6 @@ export class Repository {
     return elements;
   }
 
-  async workingBuffer(file: string): Promise<Buffer> {
-    if (!(await this.workingFiles()).includes(file)) throw new Error('File not found');
-    const filename = await this.workingPath(file);
-    const stat = await fs.lstat(filename);
-    return stat.isSymbolicLink() ? Buffer.from(await fs.readlink(filename)) : fs.readFile(filename);
-  }
-
   async lstree(treeish: string, options?: LsTreeOptions): Promise<LsTreeElement[]> {
     const args = ['-c', 'core.quotePath=false', 'ls-tree', '-lz', treeish];
     if (options?.recursive) {
@@ -118,22 +112,16 @@ export class Repository {
     return parseLsTree(result.stdout);
   }
 
-  async buffer(ref: string, path: string): Promise<Buffer> {
-    const object = `${ref}:${path}`;
-    const result = await this.exec(['show', object], true);
-    if (result.exitCode) {
-      return Promise.reject<Buffer>(new Error('Could not show object'));
-    }
-    return result.stdout;
-  }
-
   async diff(ref?: string): Promise<Diff> {
-    const snapshot = ref ? await this.getCommit(ref) : (await this.getState()).head;
-    const base = 'parents' in snapshot ? snapshot.parents[0] : snapshot.commit;
-    const range: DiffRange = {
-      base: base ?? await this.getEmptyTree(),
-      target: 'hash' in snapshot ? snapshot.hash : undefined,
-    };
+    let base: string | undefined, target: string | undefined;
+    if (ref) {
+      const commit = await this.getCommit(ref);
+      base = commit.parents[0];
+      target = commit.hash;
+    } else {
+      base = (await this.getState()).head.commit;
+    }
+    const range: DiffRange = { base: base ?? await this.getEmptyTree(), target };
     const result = await this.exec([...this.diffArgs(range), '--raw', '--numstat', '-z', '--']);
     return { range, files: parseGitDiff(result.stdout) };
   }
@@ -142,7 +130,9 @@ export class Repository {
     for (const ref of [range.base, range.target]) {
       if (ref != null && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(ref)) throw new Error('Invalid diff revision');
     }
-    return ['--literal-pathspecs', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '-M', range.base, ...(range.target ? [range.target] : [])];
+    const args = ['--literal-pathspecs', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '-M', range.base];
+    if (range.target) args.push(range.target);
+    return args;
   }
 
   async getRefs(): Promise<Ref[]> {
@@ -187,22 +177,13 @@ export class Repository {
     }
 
     const result = await this.exec(args);
-    if (result.exitCode) {
-      return [];
-    }
-
     return parseGitCommits(result.stdout);
   }
 
   async logSize(head?: string): Promise<number> {
     const args = ['rev-list', '--branches', '--remotes', '--tags', '--count'];
     if (head) args.push(head);
-
     const result = await this.exec(args);
-    if (result.exitCode) {
-      return 0;
-    }
-
     return Number.parseInt(result.stdout);
   }
 
@@ -213,6 +194,14 @@ export class Repository {
       this._emptyTree = result.stdout.trim();
     }
     return this._emptyTree;
+  }
+
+  async resolveRevision(ref: string): Promise<Revision> {
+    if (!/^[\da-f]{4,64}$/i.test(ref)) throw new Error('Invalid revision');
+    const full = await this.exec(['rev-parse', '--verify', `${ref}^{commit}`]);
+    const hash = full.stdout.trim();
+    const short = await this.exec(['rev-parse', '--short=7', hash]);
+    return { hash, shortHash: short.stdout.trim() };
   }
 
   async getCommit(ref: string): Promise<Commit> {
@@ -307,7 +296,7 @@ function parseGitCommits(data: string): Commit[] {
 
     // ` ${s}`.slice(1) forces creates a new string instead of a reference to the original huge string.
     commits.push({
-      kind: 'commit',
+      kind: SnapshotKind.Commit,
       hash: ` ${hash}`.slice(1),
       message: ` ${message}`.slice(1),
       parents: parents ? parents.split(' ') : [],

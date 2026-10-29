@@ -1,30 +1,33 @@
 import type { IMain } from './widget';
 
-import { disposableStore, type IDisposable } from '@wopjs/disposable';
 import { appendChild, listen } from '@wopjs/dom';
+import { Disposable } from '../common/disposable';
+import { SnapshotKind } from '../common/git';
+import { renderDate } from './commit-content';
 import { Commits } from './commits';
 import { styleMod } from './css';
 import { $ } from './dom';
 import { Editor } from './editor';
 import { Files } from './files';
 import { Git } from './git';
+import { i } from './icon';
 import { Status } from './status';
 import { Search } from './search';
+import { SnapshotIndex } from './symbol-index';
 import { bindKeys } from './keybindings';
 
 // Remove browser.js from HTML.
 document.querySelector('script')?.remove();
 
-class Main implements IMain, IDisposable {
+class Main extends Disposable implements IMain {
   static async initialize() {
     const git = await Git.init();
     globalThis.dev = new Main(git);
   }
 
-  private readonly _store = disposableStore();
-
   readonly dom: {
     readonly $titlebar: HTMLElement,
+    readonly $title: HTMLElement,
     readonly $content: HTMLElement,
     readonly $sidebar: HTMLElement,
     readonly $editors: HTMLElement,
@@ -36,43 +39,73 @@ class Main implements IMain, IDisposable {
   readonly editor: Editor;
   readonly commits: Commits;
   readonly status: Status;
+  readonly symbolIndex: SnapshotIndex;
 
   constructor(readonly git: Git) {
+    super();
+    this.symbolIndex = this._register(new SnapshotIndex(git));
     const $titlebar = appendChild(document.body, $('header.titlebar'));
+    const $navigation = appendChild($titlebar, $('.titlebar-navigation'));
+    const $back = appendChild($navigation, $('button'));
+    const $forward = appendChild($navigation, $('button'));
+    $back.type = $forward.type = 'button';
+    appendChild($back, i('arrow-left'));
+    appendChild($forward, i('arrow-right'));
+    $back.title = 'Go back (Ctrl+-)';
+    $forward.title = 'Go forward (Ctrl+Shift+-)';
+    $back.ariaLabel = 'Go back';
+    $forward.ariaLabel = 'Go forward';
+    const $title = appendChild($titlebar, $('.titlebar-title'));
+    const $date = appendChild($titlebar, $('.titlebar-date'));
+    this._register(git.snapshot$.subscribe(snapshot => {
+      const date = snapshot?.kind === SnapshotKind.WorkingTree ? snapshot.date : snapshot?.authorDate;
+      $date.textContent = renderDate(date);
+      $date.title = date?.toString() || '';
+    }));
     const $content = appendChild(document.body, $('main.content'));
     const $sidebar = appendChild($content, $('aside.sidebar'));
     const $editors = appendChild($content, $('div.editors'));
     const $auxSidebar = appendChild($content, $('aside.aux-sidebar'));
     const $statusbar = appendChild(document.body, $('footer.statusbar'));
-    this.dom = { $titlebar, $content, $sidebar, $auxSidebar, $editors, $statusbar };
+    this.dom = { $titlebar, $title, $content, $sidebar, $auxSidebar, $editors, $statusbar };
 
     // Setup widgets.
     this.files = new Files($sidebar, this);
     this.editor = new Editor($editors, this);
     this.commits = new Commits($auxSidebar, this);
     this.status = new Status($statusbar, this);
-    this._store.add(new Search(document.body, this));
+    this._register(new Search(document.body, this));
+    $back.onclick = () => this.editor.go(-1);
+    $forward.onclick = () => this.editor.go(1);
+    this._register(this.editor.navigation$.subscribe(({ back, forward }) => {
+      $back.disabled = !back;
+      $forward.disabled = !forward;
+    }));
 
     const canNavigate = (e: KeyboardEvent) => {
       const target = e.target;
       if (target instanceof HTMLElement) {
-        if (target.closest('input, textarea, select, dialog[open], [role="menu"]')) return false;
+        if (target.closest('input, textarea, select, dialog[open], [role="menu"], [popover]:popover-open')) return false;
         const view = this.editor.editor;
         if (target.isContentEditable && !(view?.state.readOnly && view.contentDOM.contains(target))) return false;
       }
       return true;
     };
-    this._store.add(bindKeys(window, {
+    this._register(bindKeys(window, {
       'b': { when: canNavigate, run: () => this.status.openBranches() },
       'd': { when: canNavigate, run: () => this.status.openChanges() },
       'e': { when: canNavigate, run: () => { this.status.closeMenus(); this.files.focus(); } },
       'c': { when: canNavigate, run: () => { this.status.closeMenus(); this.commits.focus(); } },
       'v': { when: canNavigate, run: () => { this.status.closeMenus(); this.editor.focus(); } },
     }));
+    this._register(bindKeys(window, {
+      'Ctrl+-': { when: canNavigate, run: () => this.editor.go(-1) },
+      'Ctrl+Shift+-,Ctrl+Shift+_': { when: canNavigate, run: () => this.editor.go(1) },
+    }, true));
 
     // Render.
     const viewport = window.visualViewport || window;
-    this._store.add(listen(viewport as Window, 'resize', () => this.layout()));
+    this._register(listen(viewport as Window, 'resize', () => this.layout()));
     this.layout();
 
     this.setTitle();
@@ -127,12 +160,8 @@ class Main implements IMain, IDisposable {
   setTitle(filename?: string): void {
     const repo = this.git.repo.split(/[\\/]/g).pop() || this.git.repo;
     const title = filename ? `${filename} — ${repo}` : repo;
-    this.dom.$titlebar.textContent = title;
+    this.dom.$title.textContent = title;
     document.title = title;
-  }
-
-  dispose() {
-    this._store.dispose();
   }
 }
 

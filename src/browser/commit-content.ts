@@ -1,5 +1,5 @@
-import { snapshotId, type CommitShortStat, type Snapshot, type WorkingTree } from '../common/git';
 import { appendChild } from '@wopjs/dom';
+import { SnapshotKind, snapshotId, type CommitShortStat, type Snapshot, type WorkingTree } from '../common/git';
 import { $, clearElement } from './dom';
 
 export interface CommitContent {
@@ -25,7 +25,7 @@ export function createCommitContent(dom: HTMLElement): CommitContent {
 export function renderCommitContent({ $message, $changes, $author, $date, $refs }: CommitContent, snapshot: Snapshot | undefined, refs = true): void {
   if (snapshot) {
     $message.dataset.key = snapshotId(snapshot);
-    if (snapshot.kind === 'working-tree') {
+    if (snapshot.kind === SnapshotKind.WorkingTree) {
       $message.textContent = 'Working Directory';
       $message.title = 'Working Directory';
       $changes.textContent = '';
@@ -41,7 +41,7 @@ export function renderCommitContent({ $message, $changes, $author, $date, $refs 
       $changes.textContent = _renderChanges(snapshot.shortStat);
       $author.textContent = snapshot.authorName || null;
       $author.title = snapshot.authorEmail || '';
-      $date.textContent = _renderDate(snapshot.authorDate);
+      $date.textContent = renderDate(snapshot.authorDate);
       $date.title = `Commit:\t${snapshot.commitDate}\nAuthor:\t${snapshot.authorDate}`;
       _renderRefs($refs, refs ? snapshot.refNames : []);
     }
@@ -94,7 +94,7 @@ function _renderChanges(stat: CommitShortStat | undefined): string | null {
   return n && n > 1 ? String(n) : null;
 }
 
-function _renderDate(date: Date | undefined): string | null {
+export function renderDate(date: Date | undefined): string | null {
   if (!date) return null;
 
   const _2 = (n: number) => n < 10 ? `0${n}` : n;

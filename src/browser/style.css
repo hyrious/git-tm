@@ -126,6 +126,46 @@ i {
   width: 100%;
 }
 
+.titlebar {
+  display: grid;
+  grid-template-columns: 1fr minmax(0, auto) 1fr;
+}
+.titlebar-navigation {
+  display: flex;
+  gap: 2px;
+  padding-left: 4px;
+  min-width: max-content;
+  justify-self: start;
+}
+.titlebar-navigation button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  padding: 0 6px;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+}
+.titlebar-navigation button:hover:enabled {
+  background: var(--hover);
+}
+.titlebar-navigation button:disabled {
+  color: var(--dim);
+}
+.titlebar-title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.titlebar-date {
+  justify-self: end;
+  padding-right: 5px;
+  color: var(--gray);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .sidebar, .editors, .aux-sidebar {
   position: absolute;
   height: 100%;
@@ -368,6 +408,9 @@ i {
   display: flex;
   align-items: center;
   line-height: 22px;
+}
+.indexing-status {
+  margin: 0 8px;
 }
 .git-branch {
   margin: 0 0 0 13px;
@@ -625,6 +668,7 @@ kbd {
 }
 
 .search {
+  font-family: inherit;
   position: fixed;
   inset: 12vh auto auto 50%;
   transform: translateX(-50%);
@@ -666,19 +710,22 @@ kbd {
   margin-top: 6px;
 }
 .search-result {
-  padding: 4px 8px;
+  padding: 2px 6px;
   cursor: pointer;
 }
 .search-result:hover {
   background: var(--hover);
 }
 .search-result-commit {
-  height: 48px;
-  padding: 0 5px;
-  font-size: 12px;
+  height: 44px;
+  padding: 0 1px;
+  font-size: 13px;
+}
+.search-result-commit .commit-content {
+  padding-top: 2px;
 }
 .search-result-match {
-  padding: 1px 8px;
+  padding: 0 6px;
   line-height: 20px;
 }
 .search-result[aria-selected="true"] {
@@ -693,16 +740,54 @@ kbd {
   text-overflow: ellipsis;
 }
 .search-result-title {
-  font-family: Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
+  font-size: 13px;
 }
 .search-result-detail {
   color: var(--gray);
-  font-size: 11px;
+  font-size: 12px;
+}
+.search-result-symbol {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 6px 0 0;
+}
+.search-symbol-kind {
+  --symbol-color: var(--gray);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 30px;
+  color: var(--symbol-color);
+  background: color-mix(in srgb, var(--symbol-color) 14%, transparent);
+  font-size: 16px;
+  font-style: italic;
+  font-weight: bold;
+}
+.search-symbol-kind[data-color="pink"] { --symbol-color: light-dark(#B32759, #F26D98); }
+.search-symbol-kind[data-color="green"] { --symbol-color: light-dark(#167464, #66CDB5); }
+.search-symbol-kind[data-color="blue"] { --symbol-color: light-dark(#2867A5, #87BFF0); }
+.search-symbol-kind[data-color="gold"] { --symbol-color: light-dark(#916200, #E4BE70); }
+.search-symbol-kind[data-color="purple"] { --symbol-color: light-dark(#7951A8, #BE9DE8); }
+.search-symbol-content {
+  flex: 1;
+  min-width: 0;
+  align-self: center;
+  padding: 3px 0;
+}
+.search-symbol-language {
+  flex: 0 0 auto;
+  align-self: center;
+  color: var(--gray);
+  font-size: 13px;
+  font-style: italic;
+  white-space: nowrap;
 }
 .search-result mark {
   color: inherit;
-  background: color-mix(in srgb, var(--track-4) 30%, transparent);
+  background: transparent;
+  font-weight: bold;
 }
 .search-note {
   padding: 6px 8px 0;

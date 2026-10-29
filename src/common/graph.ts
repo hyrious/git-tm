@@ -1,4 +1,4 @@
-import { snapshotId, type Snapshot } from './git';
+import { SnapshotKind, snapshotId, type Snapshot } from './git';
 
 export interface GraphEdge {
   readonly column: number;
@@ -42,7 +42,7 @@ export class Graph {
       }
     }
 
-    const dashed = snapshot.kind === 'working-tree';
+    const dashed = snapshot.kind === SnapshotKind.WorkingTree;
     for (const parent of snapshot.parents) {
       let column = next.findIndex(lane => lane?.id === parent && lane.dashed === dashed);
       if (column < 0) {

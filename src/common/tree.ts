@@ -48,16 +48,15 @@ export namespace Tree {
 
   export function toggle<Item>(
     tree: Tree<Item>,
-    filter?: (node: Tree<Item> | TreeNode<Item>) => unknown,
+    filter?: (node: TreeNode<Item>) => unknown,
   ): Tree<Item> {
     if (!filter) {
       return { ...tree, collapsed: !tree.collapsed };
     }
 
     const children = inertFilterMap(tree.children, node => _toggle(node, filter));
-    const collapsed = filter(tree) ? !tree.collapsed : tree.collapsed;
-    if (children !== tree.children || collapsed !== tree.collapsed) {
-      return { children, collapsible: tree.collapsible, collapsed };
+    if (children !== tree.children) {
+      return { children, collapsible: tree.collapsible, collapsed: tree.collapsed };
     }
 
     return tree;
@@ -84,6 +83,8 @@ export namespace Tree {
 export function makeTree(elements: LsTreeElement[]): Tree<LsTreeElement> {
   const tree: Tree<LsTreeElement> = { children: [], collapsible: false, collapsed: false };
 
+  const nodes = new Map<string, TreeNode<LsTreeElement>>();
+
   for (const item of elements) {
     if (item.type === 'tree') {
       throw new Error('Unable to construct the files tree because "recursive" is not enabled.');
@@ -93,12 +94,13 @@ export function makeTree(elements: LsTreeElement[]): Tree<LsTreeElement> {
     let current: Writable<Tree<LsTreeElement>> = tree, path = '', depth = 0;
     for (const part of parts) {
       path = path ? `${path}/${part}` : part;
-      let child = current.children.find(e => e.data.file === path);
+      let child = nodes.get(path);
       if (!child) {
         const data: LsTreeElement = item.file === path ? item : {
           mode: '0', type: 'tree', object: '', size: '-', file: path
         };
         child = { data, children: [], depth, collapsible: false, collapsed: true };
+        nodes.set(path, child);
         current.children.push(child);
         current.collapsible = true;
       }

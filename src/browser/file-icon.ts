@@ -138,17 +138,28 @@ export function renderFileIcon(element: HTMLElement, path: string, folder: boole
 
   const name = path.slice(path.lastIndexOf('/') + 1).toLowerCase();
   const extension = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : '';
-  const type = Object.hasOwn(filenames, name) ? filenames[name]
-    : name.startsWith('.env.') ? 'config'
-      : name.startsWith('dockerfile.') ? 'docker'
-        : Object.hasOwn(extensions, extension) ? extensions[extension] : '';
+  let type = '';
+  if (Object.hasOwn(filenames, name)) {
+    type = filenames[name];
+  } else if (name.startsWith('.env.')) {
+    type = 'config';
+  } else if (name.startsWith('dockerfile.')) {
+    type = 'docker';
+  } else if (Object.hasOwn(extensions, extension)) {
+    type = extensions[extension];
+  }
   const entry = icons[type];
   if (!entry) {
-    const fallback = /^(readme|changelog|license|licence|copying)(\.|$)/.test(name) || /^(md|mdx|markdown)$/.test(extension) ? 'book'
-      : /^\.git/.test(name) ? 'source-control'
-        : /^(sh|bash|zsh|fish|ps1)$/.test(extension) ? 'terminal'
-          : /^(zip|gz|tar|bz2|xz|7z|rar)$/.test(extension) ? 'file-zip'
-            : 'file';
+    let fallback = 'file';
+    if (/^(readme|changelog|license|licence|copying)(\.|$)/.test(name) || /^(md|mdx|markdown)$/.test(extension)) {
+      fallback = 'book';
+    } else if (/^\.git/.test(name)) {
+      fallback = 'source-control';
+    } else if (/^(sh|bash|zsh|fish|ps1)$/.test(extension)) {
+      fallback = 'terminal';
+    } else if (/^(zip|gz|tar|bz2|xz|7z|rar)$/.test(extension)) {
+      fallback = 'file-zip';
+    }
     element.className = ic(fallback);
     return;
   }

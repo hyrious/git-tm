@@ -1,46 +1,53 @@
-import type { Diff, DiffFile, DiffRange, IBasicGitInfo, LsTreeElement, Ref, Snapshot } from '../common/git';
+import type { FileContents, FileReference, SymbolQuery, SymbolResults } from '../common/symbols';
+import type { Commit, Diff, DiffFile, DiffRange, IBasicGitInfo, LsTreeElement, Ref, Revision, Snapshot, WorkingTree } from '../common/git';
 
 import flru from 'flru';
-import { noop } from '@wopjs/cast';
 import { seq } from '@wopjs/async-seq';
-import { disposableStore, type IDisposable } from '@wopjs/disposable';
 import { arrayShallowEqual, combine, derive, reactiveArray, writable, type Readable, type Writable } from '@embra/reactivity';
 import { STEP, type Writable as Mutable } from '../common/base';
+import { Disposable } from '../common/disposable';
+import { SnapshotKind, snapshotId } from '../common/git';
+import { FileSource } from '../common/symbols';
 import { Tree, type TreeNode } from '../common/tree';
 
-export class Git implements IDisposable {
-  private readonly _store = disposableStore();
+export class Git extends Disposable {
 
   readonly repo: string;
   readonly refs: Ref[];
   readonly head: Ref;
-  readonly history = this._store.add(reactiveArray<Snapshot | undefined>());
-  private readonly offset: number;
+  readonly history = this._register(reactiveArray<Snapshot | undefined>());
 
-  readonly index$ = this._store.add(writable(0));
+  readonly index$ = this._register(writable(0));
   readonly snapshot$: Readable<Snapshot | undefined>;
   readonly tree$: Writable<Tree<LsTreeElement> | undefined>;
   readonly fileList$: Readable<TreeNode<LsTreeElement>[]>;
-  readonly error$ = this._store.add(writable<string | undefined>(undefined));
+  readonly error$ = this._register(writable<string | undefined>(undefined));
 
-  private readonly cache = flru<Promise<Uint8Array>>(20);
+  private readonly offset: number;
+  private readonly fetching: { [group: number]: Promise<void>; } = [Promise.resolve()];
+  private readonly cache = flru<Promise<FileContents>>(20);
   private readonly diffs = flru<Promise<Diff>>(20);
+  private readonly revisions = flru<Promise<Revision>>(20);
+
+  private touching = 1;
+  private navigation = 0;
   private treeSnapshot: Snapshot | undefined;
 
   private constructor(info: IBasicGitInfo) {
-    this._store.add(this.index$.subscribe(() => this.navigation++));
+    super();
+    this._register(this.index$.subscribe(() => this.navigation++));
     this.repo = info.root;
     this.refs = info.refs;
     this.head = info.head;
     this.offset = info.workingTree ? 1 : 0;
     this.history.replace(info.workingTree ? [info.workingTree, ...info.commits] : info.commits);
     this.history.setLength(info.total + this.offset);
-    this.snapshot$ = this._store.add(combine([this.index$, this.history.$], (index, history) => history[index]));
+    this.snapshot$ = this._register(combine([this.index$, this.history.$], (index, history) => history[index]));
 
-    const queue = this._store.add(seq({ dropHead: true, window: 1 }));
-    const tree$ = this._store.add(writable<Tree<LsTreeElement> | undefined>(undefined));
+    const queue = this._register(seq({ dropHead: true, window: 1 }));
+    const tree$ = this._register(writable<Tree<LsTreeElement> | undefined>(undefined));
     this.tree$ = tree$;
-    this._store.add(this.snapshot$.subscribe(snapshot => {
+    this._register(this.snapshot$.subscribe(snapshot => {
       this.cache.clear(false);
       this.error$.set(undefined);
       if (snapshot) {
@@ -61,11 +68,7 @@ export class Git implements IDisposable {
       }
     }));
 
-    this.fileList$ = this._store.add(derive(tree$, tree => tree ? Tree.flat(tree) : [], { equal: arrayShallowEqual }));
-  }
-
-  dispose() {
-    this._store.dispose();
+    this.fileList$ = this._register(derive(tree$, tree => tree ? Tree.flat(tree) : [], { equal: arrayShallowEqual }));
   }
 
   static async init(): Promise<Git> {
@@ -77,23 +80,19 @@ export class Git implements IDisposable {
   toggle(path: string): void {
     const tree = this.tree$.value;
     if (tree) {
-      const newTree = Tree.toggle(tree, node => 'data' in node && node.data.file === path);
+      const newTree = Tree.toggle(tree, node => node.data.file === path);
       this.tree$.set(newTree);
     }
   }
 
-  private readonly _fetching: { [group: number]: Promise<void>; } = [Promise.resolve()];
-  private _touching = 1;
   touch(end: number): Promise<void> {
     const max = Math.max(0, Math.floor((Math.min(end, this.history.length) - this.offset - 1) / STEP));
-    while (this._touching <= max) {
-      this._fetching[this._touching] = this._fetch(this._touching);
-      this._touching++;
+    while (this.touching <= max) {
+      this.fetching[this.touching] = this._fetch(this.touching);
+      this.touching++;
     }
-    return this._fetching[max];
+    return this.fetching[max];
   }
-
-  private navigation = 0;
 
   async goto(refName: string): Promise<void> {
     const navigation = ++this.navigation;
@@ -103,7 +102,7 @@ export class Git implements IDisposable {
       if (this.history[i] == null) await this.touch(i + 1);
       if (navigation !== this.navigation) return;
       const snapshot = this.history[i];
-      if (snapshot?.kind === 'commit' && snapshot.hash === ref.commit) {
+      if (snapshot?.kind === SnapshotKind.Commit && snapshot.hash === ref.commit) {
         this.index$.set(i);
         window.dispatchEvent(new CustomEvent('scroll-to', { detail: i }));
         return;
@@ -111,14 +110,48 @@ export class Git implements IDisposable {
     }
   }
 
-  blob(path: string, snapshot: Snapshot): Promise<Uint8Array> {
-    const key = `${snapshot.kind === 'commit' ? snapshot.hash : 'working-tree'}:${path}`;
-    let p = this.cache.get(key);
-    if (!p) {
-      p = _blob('/show', { ..._query(snapshot), path });
-      this.cache.set(key, p);
+  resolveRevision(ref: string): Promise<Revision> {
+    let result = this.revisions.get(ref);
+    if (!result) {
+      result = _api<Revision>('/revision', { ref });
+      this.revisions.set(ref, result);
+      result.catch(() => this.revisions.clear(false));
     }
-    return p;
+    return result;
+  }
+
+  async findSnapshot(id: string): Promise<number | undefined> {
+    for (let i = 0; i < this.history.length; i++) {
+      if (this.history[i] == null) await this.touch(i + 1);
+      const snapshot = this.history[i];
+      if (snapshot && snapshotId(snapshot) === id) return i;
+      if (id === 'working-tree') return;
+    }
+  }
+
+  contents(file: FileReference, snapshot: Snapshot): Promise<FileContents> {
+    const query = { ..._query(snapshot), path: file.path, source: file.source };
+    if (snapshot.kind === SnapshotKind.WorkingTree || file.source === FileSource.External) return _contents(query);
+    const key = `${snapshot.hash}:${file.path}`;
+    let result = this.cache.get(key);
+    if (!result) {
+      result = _contents(query);
+      this.cache.set(key, result);
+      result.catch(() => this.cache.clear(false));
+    }
+    return result;
+  }
+
+  symbols(snapshot: Snapshot, query: SymbolQuery): Promise<SymbolResults> {
+    return _api('/symbols', {
+      ..._query(snapshot), action: query.action,
+      path: query.file?.path ?? '', source: query.file?.source ?? FileSource.Snapshot,
+      version: query.version ?? '', position: query.position ?? 0,
+    });
+  }
+
+  blob(path: string, snapshot: Snapshot): Promise<Uint8Array> {
+    return this.contents({ source: FileSource.Snapshot, path }, snapshot).then(file => file.bytes);
   }
 
   async paths(snapshot: Snapshot): Promise<string[]> {
@@ -131,13 +164,8 @@ export class Git implements IDisposable {
     return paths;
   }
 
-  prefetch(path: string): void {
-    const snapshot = this.snapshot$.value;
-    if (snapshot) this.blob(path, snapshot).catch(noop);
-  }
-
   diff(snapshot: Snapshot): Promise<Diff> {
-    if (snapshot.kind === 'working-tree') return _api('/diff', _query(snapshot));
+    if (snapshot.kind === SnapshotKind.WorkingTree) return _api('/diff', _query(snapshot));
     let result = this.diffs.get(snapshot.hash);
     if (!result) {
       result = _api<Diff>('/diff', _query(snapshot));
@@ -150,9 +178,9 @@ export class Git implements IDisposable {
   async diffContents(range: DiffRange, file: DiffFile): Promise<[Uint8Array, Uint8Array]> {
     return Promise.all([
       file.status === 'A' ? new Uint8Array() : _blob('/show', { ref: range.base, path: file.oldPath }),
-      file.status === 'D' ? new Uint8Array() : _blob('/show', {
-        ...(range.target ? { ref: range.target } : { workingTree: '1' }), path: file.newPath,
-      }),
+      file.status === 'D' ? new Uint8Array() : range.target
+        ? _blob('/show', { ref: range.target, path: file.newPath })
+        : _blob('/show', { workingTree: '1', path: file.newPath })
     ]);
   }
 
@@ -164,13 +192,16 @@ export class Git implements IDisposable {
 }
 
 function _query(snapshot: Snapshot): Record<string, string> {
-  return snapshot.kind === 'commit' ? { ref: snapshot.hash } : { workingTree: '1' };
+  return snapshot.kind === SnapshotKind.Commit ? { ref: snapshot.hash } : { workingTree: '1' };
 }
 
 function _parseDates(info: IBasicGitInfo): void {
+  if (info.workingTree) {
+    (info.workingTree as Mutable<WorkingTree>).date = new Date(info.workingTree.date);
+  }
   for (const commit of info.commits) {
-    if (commit.authorDate) (commit as Mutable<typeof commit>).authorDate = new Date(commit.authorDate);
-    if (commit.commitDate) (commit as Mutable<typeof commit>).commitDate = new Date(commit.commitDate);
+    if (commit.authorDate) (commit as Mutable<Commit>).authorDate = new Date(commit.authorDate);
+    if (commit.commitDate) (commit as Mutable<Commit>).commitDate = new Date(commit.commitDate);
   }
 }
 
@@ -190,7 +221,7 @@ function _migrate(tree$: Writable<Tree<LsTreeElement> | undefined>, tree: Tree<L
 
   Tree.dfs(tree, node => {
     if (node.collapsible && expanded.has(node.data.file)) {
-      (node as Mutable<TreeNode<LsTreeElement>>).collapsed = false;
+      (node as Mutable<TreeNode<unknown>>).collapsed = false;
     }
   });
 
@@ -219,4 +250,12 @@ async function _blob(path: string, query: Record<string, string | number> = {}):
     return r.arrayBuffer().then(a => new Uint8Array(a));
   }
   throw new Error(await r.text());
+}
+
+async function _contents(query: Record<string, string | number>): Promise<FileContents> {
+  const url = new URL('/show', location.origin);
+  for (const [key, value] of Object.entries(query)) url.searchParams.set(key, String(value));
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(await response.text());
+  return { bytes: new Uint8Array(await response.arrayBuffer()), version: response.headers.get('X-File-Version') ?? '' };
 }

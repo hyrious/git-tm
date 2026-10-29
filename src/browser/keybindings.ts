@@ -1,10 +1,18 @@
 import type { Disposer } from '@wopjs/disposable';
 
+export interface KeybindingRun {
+  (event: KeyboardEvent): void;
+}
+
+export interface KeybindingWhen {
+  (event: KeyboardEvent): boolean;
+}
+
 export interface Keybinding {
   /** Repeated keydowns are consumed without running unless enabled. */
   readonly repeat?: boolean;
-  readonly when?: (event: KeyboardEvent) => boolean;
-  readonly run: (event: KeyboardEvent) => void;
+  readonly when?: KeybindingWhen;
+  readonly run: KeybindingRun;
 }
 
 const mac = /Mac|iPhone|iPad/.test(navigator.platform);
@@ -22,20 +30,23 @@ export function onKeyDown(target: HTMLElement | Window, handler: (event: Keyboar
   return () => target.removeEventListener('keydown', listener, capture);
 }
 
-/** Comma-separated keys with optional Mod+ and Shift+ prefixes. Mod is Command on macOS, Control elsewhere. */
-export function bindKeys(target: HTMLElement | Window, bindings: Readonly<Record<string, Keybinding | Keybinding['run']>>, capture = false): Disposer {
+/** Comma-separated keys with optional Mod+, Ctrl+, Alt+ and Shift+ prefixes. Mod is Command on macOS, Control elsewhere. */
+export function bindKeys(target: HTMLElement | Window, bindings: Readonly<Record<string, Keybinding | KeybindingRun>>, capture = false): Disposer {
   const entries = Object.entries(bindings).flatMap(([keys, binding]) => keys.split(',').map(shortcut => {
     const parts = shortcut.trim().split('+');
     const name = parts.pop()!;
     const mod = parts.includes('Mod');
+    const ctrl = parts.includes('Ctrl');
     const shift = parts.includes('Shift');
+    const alt = parts.includes('Alt');
     const key = name === 'Space' ? ' ' : mod ? name.toLowerCase() : name;
-    return { key, mod, shift, binding: typeof binding === 'function' ? { run: binding } : binding };
+    return { key, mod, ctrl, shift, alt, binding: typeof binding === 'function' ? { run: binding } : binding };
   }));
   return onKeyDown(target, e => {
-    for (const { key: expected, mod, shift, binding } of entries) {
-      if (e.altKey || e.ctrlKey != (mod && !mac) || e.metaKey != (mod && mac) || e.shiftKey != shift) continue;
-      const key = mod ? e.key.toLowerCase() : e.key;
+    for (const { key: expected, mod, ctrl, shift, alt, binding } of entries) {
+      if (e.altKey != alt || e.ctrlKey != (ctrl || mod && !mac) || e.metaKey != (mod && mac) || e.shiftKey != shift) continue;
+      const letter = alt && /^Key[A-Z]$/.test(e.code) ? e.code.slice(3).toLowerCase() : e.key;
+      const key = mod ? letter.toLowerCase() : letter;
       if (key != expected) continue;
       if (binding.when && !binding.when(e)) continue;
       if (!e.repeat || binding.repeat) binding.run(e);

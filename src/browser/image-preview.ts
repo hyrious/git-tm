@@ -1,4 +1,4 @@
-import { disposableStore, type IDisposable } from '@wopjs/disposable';
+import { Disposable } from '../common/disposable';
 import { appendChild, listen } from '@wopjs/dom';
 import { $ } from './dom';
 import { Scrollbars } from './scrollbars';
@@ -20,8 +20,7 @@ export function imageType(path: string): string | undefined {
 
 const scales = [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 8, 16];
 
-export class ImagePreview implements IDisposable {
-  private readonly store = disposableStore();
+export class ImagePreview extends Disposable {
   private readonly element = $('.image-preview');
   private readonly viewport = $('.image-viewport');
   private readonly canvas = $('.image-canvas');
@@ -35,6 +34,7 @@ export class ImagePreview implements IDisposable {
   private scale = 1;
 
   constructor(parent: HTMLElement, status: HTMLElement, contents: Uint8Array, mime: string, path: string, onError: () => void) {
+    super();
     parent.append(this.element);
     status.append(this.zoom, this.dimensions, this.menu);
     this.zoom.type = 'button';
@@ -56,18 +56,18 @@ export class ImagePreview implements IDisposable {
       item.setAttribute('role', 'menuitemradio');
       item.setAttribute('aria-checked', String(mode === this.mode));
       this.items.push(item);
-      this.store.add(listen(item, 'click', () => this.select(item)));
+      this._register(listen(item, 'click', () => this.select(item)));
     }
-    this.store.add(new Scrollbars(content));
-    this.store.add(new MenuNavigation(this.menu, this.items, item => item.textContent || '', () => { }));
-    this.store.add(bindKeys(this.menu, {
+    this._register(new Scrollbars(content));
+    this._register(new MenuNavigation(this.menu, this.items, item => item.textContent || '', () => { }));
+    this._register(bindKeys(this.menu, {
       'Enter,Space': () => {
         const item = document.activeElement;
         if (item instanceof HTMLElement && this.items.includes(item)) this.select(item);
       },
       'Escape': () => { this.closeMenu(); this.zoom.focus(); },
     }, true));
-    this.store.add(listen(this.zoom, 'click', e => {
+    this._register(listen(this.zoom, 'click', e => {
       e.preventDefault();
       if (this.menu.matches(':popover-open')) this.closeMenu();
       else {
@@ -84,32 +84,32 @@ export class ImagePreview implements IDisposable {
     this.image.alt = path;
     this.image.draggable = false;
     this.image.hidden = true;
-    this.store.add(listen(this.image, 'load', () => {
+    this._register(listen(this.image, 'load', () => {
       this.image.hidden = false;
       this.dimensions.textContent = `${this.image.naturalWidth}×${this.image.naturalHeight}`;
       this.layout();
     }));
-    this.store.add(listen(this.image, 'error', onError));
-    this.store.add(listen(this.canvas, 'click', e => this.step(e.altKey ? -1 : 1)));
+    this._register(listen(this.image, 'error', onError));
+    this._register(listen(this.canvas, 'click', e => this.step(e.altKey ? -1 : 1)));
     const cursor = (e: MouseEvent | KeyboardEvent) => {
       this.canvas.style.cursor = e.altKey ? 'zoom-out' : 'zoom-in';
     };
-    this.store.add(listen(this.canvas, 'pointermove', cursor));
-    this.store.add(listen(this.canvas, 'pointerenter', cursor));
-    this.store.add(listen(window, 'keydown', cursor));
-    this.store.add(listen(window, 'keyup', cursor));
-    this.store.add(listen(window, 'blur', () => this.canvas.style.cursor = 'zoom-in'));
-    this.store.add(listen(this.viewport, 'wheel', e => {
+    this._register(listen(this.canvas, 'pointermove', cursor));
+    this._register(listen(this.canvas, 'pointerenter', cursor));
+    this._register(listen(window, 'keydown', cursor));
+    this._register(listen(window, 'keyup', cursor));
+    this._register(listen(window, 'blur', () => this.canvas.style.cursor = 'zoom-in'));
+    this._register(listen(this.viewport, 'wheel', e => {
       if (!(e.ctrlKey || e.metaKey) || !e.deltaY) return;
       e.preventDefault();
       this.step(e.deltaY < 0 ? 1 : -1);
     }, { passive: false }));
     const resize = new ResizeObserver(() => this.layout());
     resize.observe(this.viewport);
-    this.store.add(() => resize.disconnect());
-    this.store.add(new Scrollbars(this.viewport, this.canvas));
+    this._register(() => resize.disconnect());
+    this._register(new Scrollbars(this.viewport, this.canvas));
     const url = URL.createObjectURL(new Blob([new Uint8Array(contents)], { type: mime }));
-    this.store.add(() => URL.revokeObjectURL(url));
+    this._register(() => URL.revokeObjectURL(url));
     this.image.src = url;
   }
 
@@ -145,9 +145,9 @@ export class ImagePreview implements IDisposable {
     if (this.menu.matches(':popover-open')) this.menu.hidePopover();
   }
 
-  dispose(): void {
+  override dispose(): void {
     this.closeMenu();
-    this.store.dispose();
+    super.dispose();
     this.image.removeAttribute('src');
     this.element.remove();
     this.dimensions.remove();

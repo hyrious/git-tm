@@ -5,12 +5,12 @@ import type { TreeNode } from '../common/tree';
 
 import { noop } from '@wopjs/cast';
 import { appendChild, detach } from '@wopjs/dom';
+import { combine, writable, type Readable } from '@embra/reactivity';
 import { $, clearElement } from './dom';
 import { Scrollable, type ItemRenderer } from './scrollable';
 import { Widget } from './widget';
 import { i, ic } from './icon';
 import { renderFileIcon } from './file-icon';
-import { combine, writable, type Readable } from '@embra/reactivity';
 import { styleMod } from './css';
 import { bindKeys } from './keybindings';
 
@@ -62,13 +62,6 @@ export class Files extends Widget implements ItemRenderer<Item, Template> {
         if (item.data.type === 'blob') {
           window.dispatchEvent(new CustomEvent('editor.open', { detail: item.data.file }));
         }
-      }
-    }));
-
-    this._register(this.scrollable.onHover(index => {
-      const item = items$.value.at(index);
-      if (item && item.data.type === 'blob') {
-        this.root.git.prefetch(item.data.file);
       }
     }));
 

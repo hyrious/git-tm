@@ -28,8 +28,6 @@ export class Status extends Widget {
     appendChild($gitBranch, i('source-control'));
 
     const $name = appendChild($gitBranch, $('span.git-branch-name'));
-    const $loading = appendChild($gitBranch, i('loading'));
-    $loading.style.display = 'none';
 
     const $menu = this.$menu = appendChild(this.parent, $('.git-branch-menu'));
     $menu.tabIndex = -1;
@@ -50,23 +48,15 @@ export class Status extends Widget {
       }
     }
 
-    let selection = 0;
     const select = async ($branch: HTMLElement) => {
       const refName = $branch.textContent;
       if (!refName) return;
 
-      const request = ++selection;
-      const loading = setTimeout(() => {
-        if (request === selection) $loading.style.display = '';
-      }, 100);
       this.branch$.set(refName);
       try {
         await this.root.git.goto(refName);
       } catch (error) {
         console.error(error);
-      } finally {
-        clearTimeout(loading);
-        if (request === selection) $loading.style.display = 'none';
       }
     };
 
@@ -96,6 +86,19 @@ export class Status extends Widget {
     }, true));
 
     this.changes = this._register(new Changes(appendChild(this.parent, $('.changes-detail')), this.root));
+
+    const $indexing = appendChild(this.parent, $('.indexing-status'));
+    $indexing.setAttribute('role', 'status');
+    this._register(this.root.symbolIndex.progress$.subscribe(percent => {
+      $indexing.hidden = percent === null;
+      if (percent === null) {
+        $indexing.textContent = '';
+      } else if (percent === undefined) {
+        $indexing.textContent = 'Indexing…';
+      } else {
+        $indexing.textContent = `Indexing… ${percent}%`;
+      }
+    }));
 
     appendChild(this.parent, $('.space'));
     const $pinned = appendChild(this.parent, $('.pinned'));

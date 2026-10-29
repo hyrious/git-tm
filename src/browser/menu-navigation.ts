@@ -1,13 +1,11 @@
-import { disposableStore, type IDisposable } from '@wopjs/disposable';
 import { listen } from '@wopjs/dom';
+import { Disposable } from '../common/disposable';
 import { bindKeys, onKeyDown } from './keybindings';
 
-export class MenuNavigation implements IDisposable {
+export class MenuNavigation extends Disposable {
 
   private prefix = '';
   private lastInput = 0;
-
-  private readonly _store = disposableStore();
 
   constructor(
     dom: HTMLElement,
@@ -15,14 +13,15 @@ export class MenuNavigation implements IDisposable {
     private readonly getLabel: (item: HTMLElement) => string,
     private readonly onFocus: (item: HTMLElement) => void,
   ) {
-    this._store.add(bindKeys(dom, {
+    super();
+    this._register(bindKeys(dom, {
       'ArrowUp,ArrowDown': { repeat: true, run: e => this.onArrowKey(e) },
     }));
-    this._store.add(onKeyDown(dom, e => this.onType(e)));
-    this._store.add(listen(dom, 'focusout', e => {
+    this._register(onKeyDown(dom, e => this.onType(e)));
+    this._register(listen(dom, 'focusout', e => {
       if (!(e.relatedTarget instanceof Node) || !dom.contains(e.relatedTarget)) this.prefix = '';
     }));
-    this._store.add(listen(dom, 'pointerdown', () => this.prefix = ''));
+    this._register(listen(dom, 'pointerdown', () => this.prefix = ''));
   }
 
   private onArrowKey(e: KeyboardEvent): void {
@@ -51,9 +50,5 @@ export class MenuNavigation implements IDisposable {
       item.focus();
       this.onFocus(item);
     }
-  }
-
-  dispose(): void {
-    this._store.dispose();
   }
 }

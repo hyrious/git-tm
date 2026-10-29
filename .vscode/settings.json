@@ -7,6 +7,6 @@
     "editor.defaultFormatter": "vscode.typescript-language-features",
     "editor.formatOnSave": true
   },
-  "typescript.format.semicolons": "insert",
-  "typescript.preferences.quoteStyle": "single",
+  "js/ts.format.semicolons": "insert",
+  "js/ts.preferences.quoteStyle": "single",
 }

@@ -37,11 +37,20 @@ export class Help extends Widget {
         [`${mod} + P`, 'Find file'],
         [`${mod} + K`, 'Find commit'],
       ]],
+      ['Symbols (editor focused)', [
+        ['Ctrl + -', 'Go back'],
+        ['Ctrl + Shift + -', 'Forward'],
+        [`${mod} + R / ${mod} + Alt + O`, 'Find symbol in file'],
+        [`${mod} + Shift + R`, 'Find all symbols'],
+        ['F12', 'Go to definition'],
+        ['Shift + F12', 'Find references'],
+        [`${mod} + Alt + F12`, 'Find all symbol locations'],
+      ]],
       ['Lists and menus', [
         ['↑ / ↓', 'Move selection'],
         ['← / →', 'Collapse or expand folder'],
         ['Enter', 'Open selection'],
-        ['Esc', 'Close popup or leave panel'],
+        ['Esc', 'Cancel'],
       ]],
     ] as const;
     for (const [title, shortcuts] of sections) {

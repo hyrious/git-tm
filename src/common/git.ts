@@ -1,5 +1,10 @@
+export const enum SnapshotKind {
+  Commit,
+  WorkingTree,
+}
+
 export interface Commit {
-  readonly kind: 'commit';
+  readonly kind: SnapshotKind.Commit;
   readonly hash: string;
   readonly message: string;
   readonly parents: string[];
@@ -50,7 +55,8 @@ export interface IBasicGitInfo {
 }
 
 export interface WorkingTree {
-  readonly kind: 'working-tree';
+  readonly kind: SnapshotKind.WorkingTree;
+  readonly date: Date;
   readonly parents: string[];
   readonly staged: number;
   readonly unstaged: number;
@@ -58,6 +64,11 @@ export interface WorkingTree {
 }
 
 export type Snapshot = Commit | WorkingTree;
+
+export interface Revision {
+  readonly hash: string;
+  readonly shortHash: string;
+}
 
 export interface DiffRange {
   readonly base: string;
@@ -80,5 +91,5 @@ export interface Diff {
 }
 
 export function snapshotId(snapshot: Snapshot): string {
-  return snapshot.kind === 'commit' ? snapshot.hash : 'working-tree';
+  return snapshot.kind === SnapshotKind.Commit ? snapshot.hash : 'working-tree';
 }

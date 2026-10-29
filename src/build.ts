@@ -20,13 +20,14 @@ const build_browser = await context({
 });
 
 const build_cli = await context({
-  entryPoints: ['src/node/cli.ts'],
+  entryPoints: ['src/node/cli.ts', 'src/node/workspace-worker.ts', 'src/node/symbols.ts'],
+  external: ['typescript', './symbols.js'],
   bundle: true,
   format: 'esm',
   platform: 'node',
   mainFields: ['module', 'main'],
   loader: { '.html': 'text' },
-  outfile: 'dist/cli.js',
+  outdir: 'dist',
 });
 
 async function _rebuild() {

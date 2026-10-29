@@ -1,43 +1,69 @@
+import type { FileReference, FileLocation, FileContents } from '../common/symbols';
 import type { Writable } from '../common/base';
 import type { DiffFile, DiffRange, Snapshot } from '../common/git';
 
-import { seq } from '@wopjs/async-seq';
-import { appendChild, listen } from '@wopjs/dom';
 import { writable } from '@embra/reactivity';
-import { Compartment, EditorState, type Extension } from '@codemirror/state';
+import { appendChild, listen } from '@wopjs/dom';
+import { Compartment, EditorState, StateEffect, type Extension } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, drawSelection, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers } from '@codemirror/view';
 import { defaultKeymap } from '@codemirror/commands';
 import { bracketMatching, foldGutter, foldKeymap, LanguageDescription } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
 import { unifiedMergeView } from '@codemirror/merge';
+import { FileSource } from '../common/symbols';
+import { snapshotId } from '../common/git';
 import { $, onCustomEvent } from './dom';
 import { modernDark, modernLight } from './editor-theme';
 import { Widget } from './widget';
 import { Scrollbars } from './scrollbars';
 import { bindKeys } from './keybindings';
 import { ImagePreview, imageType } from './image-preview';
+import { NavigationHistory, formatLocation, parseLocation, positionAt, offsetAt, type NavigationEntry } from './navigation';
+
+export const enum EditorTargetKind {
+  File,
+  Diff,
+}
 
 export interface DiffTarget {
-  readonly kind: 'diff';
+  readonly kind: EditorTargetKind.Diff;
   readonly snapshot: Snapshot;
   readonly range: DiffRange;
   readonly file: DiffFile;
 }
 
+interface EditorDocument {
+  readonly file: FileReference;
+  readonly snapshot: Snapshot;
+  readonly version: string;
+}
+
 interface FileTarget {
-  readonly kind: 'file';
+  readonly kind: EditorTargetKind.File;
+  readonly source: FileSource;
   readonly snapshot: Snapshot;
   readonly path: string;
   readonly location?: FileLocation;
+  readonly restore?: NavigationEntry;
+  readonly record: boolean;
 }
 
-export interface FileLocation {
-  readonly path: string;
-  readonly from: number;
-  readonly to: number;
+interface SavedEditor {
+  readonly state: EditorState;
+  readonly document: EditorDocument | undefined;
+  readonly scroll: StateEffect<unknown>;
 }
 
-type EditorTarget = FileTarget | DiffTarget;
+type EditorTarget = (FileTarget | DiffTarget) & {
+  readonly preview?: boolean;
+  readonly saved?: SavedEditor;
+};
+
+interface EditorPreview {
+  readonly target: EditorTarget | undefined;
+  readonly origin: NavigationEntry | undefined;
+  readonly files: Map<string, Promise<FileContents>>;
+}
 
 export class Editor extends Widget {
   readonly $header: HTMLElement;
@@ -46,8 +72,20 @@ export class Editor extends Widget {
   readonly matches = new Compartment();
   readonly theme = new Compartment();
   readonly colorScheme = matchMedia('(prefers-color-scheme: dark)');
+  readonly navigation$ = this._register(writable({ back: false, forward: false }));
 
+  readonly history = new NavigationHistory();
+  readonly target$ = this._register(writable<EditorTarget | undefined>(undefined));
+  navigationRequest = 0;
+  urlRequest = 0;
+  changingSnapshot = false;
+  restoring = false;
+  previewing = false;
+  previewSession: EditorPreview | undefined;
+
+  displayedTarget: EditorTarget | undefined;
   path: string | undefined;
+  document: EditorDocument | undefined;
   editor: EditorView | undefined;
   image: ImagePreview | undefined;
 
@@ -65,77 +103,327 @@ export class Editor extends Widget {
       'Escape'() { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); },
     }));
 
-    const target$ = this._register(writable<EditorTarget | undefined>(undefined));
-    const queue = this._register(seq({ window: 1, dropHead: true }));
+    const target$ = this.target$;
     this._register(onCustomEvent<string | FileLocation>('editor.open', e => {
-      const snapshot = this.root.git.snapshot$.value;
-      if (snapshot) target$.set({
-        kind: 'file', snapshot,
-        path: typeof e.detail === 'string' ? e.detail : e.detail.path,
-        location: typeof e.detail === 'string' ? undefined : e.detail
-      });
+      this.remember(true);
+      this.history.leave();
+      this.updateNavigation();
+      this.openFile(e.detail, false);
     }));
     this._register(onCustomEvent<DiffTarget>('editor.diff', e => {
-      if (e.detail.snapshot === this.root.git.snapshot$.value) target$.set(e.detail);
+      if (e.detail.snapshot === this.root.git.snapshot$.value) {
+        this.remember(false);
+        this.history.leave();
+        this.updateNavigation();
+        target$.set(e.detail);
+      }
     }));
     this._register(this.root.git.snapshot$.subscribe(snapshot => {
+      if (this.changingSnapshot) return;
+      this.navigationRequest++;
       const target = target$.value;
       if (target?.snapshot !== snapshot) {
-        target$.set(target?.kind === 'file' && snapshot ? { ...target, snapshot, location: undefined } : undefined);
+        this.remember(false);
+        this.history.leave();
+        this.updateNavigation();
+        if (target?.kind === EditorTargetKind.File && snapshot) {
+          target$.set({
+            ...target, snapshot, location: undefined, restore: undefined,
+            saved: undefined, preview: false, record: false,
+          });
+        } else {
+          target$.set(undefined);
+        }
       }
     }));
     this._register(target$.subscribe(target => {
-      const path = target?.kind === 'diff' ? target.file.newPath : target?.path;
-      this.root.setTitle(path?.split('/').pop());
-      this.$header.textContent = target?.kind === 'diff' ? `${target.file.oldPath} → ${path}` : path ?? null;
-      this.$header.title = this.$header.textContent ?? '';
-      this.showMessage(target ? 'Loading…' : 'Select a file to view its contents.');
-      queue.schedule(async () => {
-        if (!target) return;
+      const request = ++this.navigationRequest;
+      this.urlRequest++;
+      const path = target?.kind === EditorTargetKind.Diff ? target.file.newPath : target?.path;
+      if (!target) {
+        this.setHeader(undefined);
+        this.showMessage('Select a file to view its contents.');
+        return;
+      }
+      if (target.saved) {
+        this.clear();
+        this.setHeader(target);
+        this.editor = new EditorView({ parent: this.$body, state: target.saved.state });
+        this.document = target.saved.document;
+        this.path = path;
+        this.restoring = true;
+        this.editor.dispatch({ effects: target.saved.scroll });
+        this.restoring = false;
+        if (!this.previewing) this.focus();
+        return;
+      }
+      void (async () => {
         try {
-          const contents = target.kind === 'diff'
+          const file = target.kind === EditorTargetKind.File ? await this.contents(target) : undefined;
+          const contents = target.kind === EditorTargetKind.Diff
             ? await this.root.git.diffContents(target.range, target.file)
-            : [await this.root.git.blob(target.path, target.snapshot)];
-          if (target$.disposed || target$.value !== target) return;
-          const mime = target.kind === 'file' ? imageType(target.path) : undefined;
-          if (target.kind === 'file' && mime) {
+            : [file!.bytes];
+          if (target$.disposed || request !== this.navigationRequest) return;
+          this.setHeader(target);
+          const mime = target.kind === EditorTargetKind.File ? imageType(target.path) : undefined;
+          if (target.kind === EditorTargetKind.File && mime) {
             const focused = this.$body.contains(document.activeElement);
             this.clear();
             this.image = new ImagePreview(this.$body, this.root.status.$image, contents[0], mime, target.path, () => this.showMessage('Could not load image.'));
             this.path = path;
+            if (!target.preview) this.writeURL('');
             if (focused) this.focus();
             return;
           }
-          if ((target.kind === 'diff' && target.file.insertions == null) || contents.some(b => b.subarray(0, 8000).includes(0))) {
+          if ((target.kind === EditorTargetKind.Diff && target.file.insertions == null) || contents.some(b => b.subarray(0, 8000).includes(0))) {
             this.showMessage('File is binary.');
+            if (!target.preview) this.writeURL('');
             return;
           }
           const decoder = new TextDecoder();
           const docs = contents.map(b => decoder.decode(b));
           const focused = this.$body.contains(document.activeElement);
           this.clear();
-          if (target.kind === 'diff') {
+          if (target.kind === EditorTargetKind.Diff) {
             this.editor = new EditorView({
               parent: this.$body,
               doc: docs[1],
               extensions: [
                 this.extensions(target.file.newPath, `${target.file.newPath} (diff)`),
-                unifiedMergeView({ original: docs[0], mergeControls: false }),
+                unifiedMergeView({ original: docs[0], mergeControls: false, collapseUnchanged: { margin: 5 } }),
               ],
             });
           } else {
             this.editor = new EditorView({ parent: this.$body, doc: docs[0], extensions: this.extensions(target.path, target.path) });
+            this.document = { file: { source: target.source, path: target.path }, snapshot: target.snapshot, version: file!.version };
           }
           this.path = path;
-          if (target.kind === 'file' && target.location) {
-            this.reveal(target.location.from, target.location.to);
-            this.focus();
+          this.restoring = true;
+          if (target.kind === EditorTargetKind.File && target.location) {
+            if (!target.location.version || target.location.version === file!.version) this.reveal(target.location.from, target.location.to);
+            else this.$header.textContent = `${target.path} — File changed; run the symbol command again.`;
+            if (!target.preview) this.focus();
           } else if (focused) this.focus();
+          if (target.kind === EditorTargetKind.File && target.restore) {
+            this.restoreSelection(target.restore);
+            this.focus();
+          }
+          this.restoring = false;
+          if (target.preview) return;
+          if (target.kind === EditorTargetKind.File) {
+            this.remember(target.record);
+            this.updateURL();
+          } else this.writeURL('');
         } catch (error) {
-          if (!target$.disposed && target$.value === target) this.showMessage(target.kind === 'diff' ? 'Could not read diff.' : 'Could not read file.');
+          this.restoring = false;
+          if (!target$.disposed && request === this.navigationRequest) {
+            this.setHeader(target);
+            this.showMessage(target.kind === EditorTargetKind.Diff ? 'Could not read diff.' : 'Could not read file.');
+          }
         }
-      });
+      })();
     }));
+    this._register(listen(window, 'hashchange', () => this.openURL()));
+    this.openURL();
+  }
+
+  openFile(_location: string | FileLocation, preview: boolean): void {
+    const snapshot = this.root.git.snapshot$.value;
+    if (!snapshot) return;
+    let location: FileLocation | undefined, source: FileSource, path: string;
+    if (typeof _location === 'string') {
+      source = FileSource.Snapshot;
+      path = _location;
+    } else {
+      location = _location;
+      source = _location.source;
+      path = _location.path;
+    }
+    const document = this.document;
+    if (preview && this.editor && document?.snapshot === snapshot && document.file.source === source && document.file.path === path
+      && (!location || !location.version || location.version === document.version)) {
+      if (location) this.reveal(location.from, location.to);
+      return;
+    }
+    this.target$.set({
+      kind: EditorTargetKind.File, snapshot, source, path,
+      location: location,
+      record: !preview, preview,
+    });
+  }
+
+  contents(target: FileTarget & { readonly preview?: boolean; }): Promise<FileContents> {
+    const files = target.preview ? this.previewSession?.files : undefined;
+    if (!files) return this.root.git.contents(target, target.snapshot);
+    const key = `${target.source}:${target.path}`;
+    let result = files.get(key);
+    if (!result) {
+      result = this.root.git.contents(target, target.snapshot);
+      files.set(key, result);
+    }
+    return result;
+  }
+
+  beginPreview(): NavigationEntry | undefined {
+    const target = this.displayedTarget, view = this.editor;
+    const origin = this.capture();
+    let savedTarget = target;
+    if (target && view) {
+      savedTarget = {
+        ...target,
+        saved: { state: view.state, document: this.document, scroll: view.scrollSnapshot() },
+      };
+    }
+    this.previewSession = { target: savedTarget, origin, files: new Map() };
+    this.previewing = true;
+    this.urlRequest++;
+    return origin;
+  }
+
+  endPreview(restore: boolean, location?: string | FileLocation): void {
+    const session = this.previewSession;
+    this.previewSession = undefined;
+    this.previewing = false;
+    if (!session) return;
+    if (location != null) {
+      if (session.origin) this.history.visit(session.origin);
+      this.history.leave();
+      this.updateNavigation();
+      this.openFile(location, false);
+    } else if (restore && (!session.target || session.target.snapshot === this.root.git.snapshot$.value)) {
+      this.target$.set(session.target ? { ...session.target } : undefined);
+    }
+  }
+
+  resetPreview(): void {
+    const session = this.previewSession;
+    if (session && (!session.target || session.target.snapshot === this.root.git.snapshot$.value)) {
+      this.target$.set(session.target ? { ...session.target, preview: true } : undefined);
+    }
+  }
+
+  capture(): NavigationEntry | undefined {
+    const document = this.document, editor = this.editor;
+    if (!document || !editor) return;
+    const { anchor, head } = editor.state.selection.main;
+    return {
+      location: {
+        ...document.file, snapshot: snapshotId(document.snapshot),
+        anchor: positionAt(editor.state.doc, anchor), head: positionAt(editor.state.doc, head),
+      },
+      saved: { version: document.version, selection: { anchor, head }, scroll: editor.scrollSnapshot() },
+    };
+  }
+
+  remember(visit: boolean): void {
+    if (this.previewing || this.restoring) return;
+    const entry = this.capture();
+    if (entry) {
+      if (visit) this.history.visit(entry);
+      else this.history.update(entry);
+    }
+    this.updateNavigation();
+  }
+
+  updateNavigation(): void {
+    this.navigation$.set({ back: this.history.canGoBack, forward: this.history.canGoForward });
+  }
+
+  jump(from: number, to: number, origin?: NavigationEntry): void {
+    if (origin) this.history.visit(origin);
+    else this.remember(true);
+    this.restoring = true;
+    this.reveal(from, to);
+    this.restoring = false;
+    this.remember(true);
+    this.updateURL();
+    this.focus();
+  }
+
+  go(direction: -1 | 1): void {
+    this.remember(false);
+    const entry = this.history.go(direction);
+    if (entry) void this.restoreLocation(entry, false);
+    this.updateNavigation();
+  }
+
+  openURL(): void {
+    if (!location.hash) return;
+    const entry = parseLocation(location.hash);
+    if (entry) {
+      this.remember(true);
+      void this.restoreLocation({ location: entry, saved: undefined }, true);
+    } else {
+      this.remember(false);
+      this.history.leave();
+      this.target$.set(undefined);
+      this.showMessage('Invalid file location.');
+      this.updateNavigation();
+    }
+  }
+
+  async restoreLocation(entry: NavigationEntry, record: boolean): Promise<void> {
+    const location = entry.location;
+    this.urlRequest++;
+    const request = ++this.navigationRequest;
+    try {
+      const id = location.snapshot === 'working-tree' ? location.snapshot : (await this.root.git.resolveRevision(location.snapshot)).hash;
+      if (request !== this.navigationRequest || this.target$.disposed) return;
+      const index = await this.root.git.findSnapshot(id);
+      if (request !== this.navigationRequest || this.target$.disposed) return;
+      if (index == null) throw new Error('Snapshot is no longer available.');
+      this.changingSnapshot = true;
+      this.root.commits.offset$.set(undefined);
+      window.dispatchEvent(new CustomEvent('pinned', { detail: false }));
+      this.root.git.index$.set(index);
+      this.changingSnapshot = false;
+      window.dispatchEvent(new CustomEvent('scroll-to', { detail: index }));
+      const snapshot = this.root.git.snapshot$.value!;
+      this.target$.set({ kind: EditorTargetKind.File, snapshot, source: location.source, path: location.path, restore: entry, record });
+    } catch (error) {
+      if (request === this.navigationRequest && !this.target$.disposed) {
+        this.history.leave();
+        this.updateNavigation();
+        this.showMessage(error instanceof Error ? error.message : 'Could not restore location.');
+      }
+    } finally {
+      this.changingSnapshot = false;
+    }
+  }
+
+  restoreSelection(entry: NavigationEntry): void {
+    const { location, saved } = entry;
+    const editor = this.editor;
+    if (!editor) return;
+    if (saved && saved.version === this.document?.version) editor.dispatch({ selection: saved.selection, effects: saved.scroll });
+    else this.reveal(offsetAt(editor.state.doc, location.anchor), offsetAt(editor.state.doc, location.head));
+  }
+
+  updateURL(): void {
+    if (this.previewing || this.restoring) return;
+    const location = this.capture()?.location;
+    if (!location) return;
+    const request = ++this.urlRequest;
+    if (location.snapshot === 'working-tree') this.writeURL(formatLocation(location));
+    else this.root.git.resolveRevision(location.snapshot).then(revision => {
+      if (request === this.urlRequest && !this.target$.disposed) this.writeURL(formatLocation({ ...location, snapshot: revision.shortHash }));
+    }).catch(() => {
+      if (request === this.urlRequest && !this.target$.disposed) this.writeURL(formatLocation(location));
+    });
+  }
+
+  writeURL(hash: string): void {
+    if (location.hash !== hash) window.history.replaceState(null, '', location.pathname + location.search + hash);
+  }
+
+  async refreshFile(): Promise<void> {
+    const document = this.document, editor = this.editor;
+    if (!document || !editor) return;
+    const contents = await this.root.git.contents(document.file, document.snapshot);
+    if (this.document !== document || this.editor !== editor) return;
+    const text = new TextDecoder().decode(contents.bytes);
+    this.document = { ...document, version: contents.version };
+    editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: text } });
   }
 
   extensions(path: string, label: string): Extension {
@@ -145,6 +433,12 @@ export class Editor extends Widget {
       EditorState.readOnly.of(true),
       EditorState.tabSize.of(4),
       EditorView.contentAttributes.of({ 'aria-label': label }),
+      EditorView.updateListener.of(update => {
+        if (update.selectionSet || update.docChanged) {
+          this.remember(false);
+          this.updateURL();
+        }
+      }),
       lineNumbers(), highlightActiveLineGutter(), highlightActiveLine(), drawSelection(),
       bracketMatching(), foldGutter({ openText: '\uEAB4', closedText: '\uEAB6' }), this.matches.of([]),
       keymap.of([...defaultKeymap, ...foldKeymap]),
@@ -164,13 +458,23 @@ export class Editor extends Widget {
     ];
   }
 
+  setHeader(target: EditorTarget | undefined): void {
+    this.displayedTarget = target;
+    const path = target?.kind === EditorTargetKind.Diff ? target.file.newPath : target?.path;
+    this.root.setTitle(path?.split('/').pop());
+    this.$header.textContent = target?.kind === EditorTargetKind.Diff ? `${target.file.oldPath} → ${path}` : path ?? null;
+    this.$header.title = this.$header.textContent ?? '';
+  }
+
   clear(): void {
+    this.urlRequest++;
     window.dispatchEvent(new CustomEvent('editor.clear'));
     this.editor?.destroy();
     this.editor = undefined;
     this.image?.dispose();
     this.image = undefined;
     this.path = undefined;
+    this.document = undefined;
     this.$body.replaceChildren();
     this.$body.classList.remove('editor-message');
   }

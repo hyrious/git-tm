@@ -2,10 +2,11 @@ import type { IBasicGitInfo } from '../common/git';
 
 import fs from 'node:fs';
 import path from 'node:path';
-import crypto from 'node:crypto';
 import http from 'node:http';
 
 import { Repository } from './repository';
+import { Workspace } from './workspace';
+import { FileSource, SymbolAction } from '../common/symbols';
 import { makeTree } from '../common/tree';
 
 import indexHTML from '../browser/index.html';
@@ -20,12 +21,14 @@ export interface ServerOptions {
 }
 
 export async function launchServer(options?: ServerOptions): Promise<http.Server & { readonly _thePort: number; }> {
-  const repo = new Repository(findGitRepo(path.resolve(options?.repo ?? '.')));
+  const repo = new Repository(findGitRepo(fs.realpathSync(path.resolve(options?.repo ?? '.'))));
 
-  const server = http.createServer(catchAll(handleRequest.bind(null, repo)));
+  const workspace = new Workspace(repo.root);
+  const server = http.createServer(catchAll(handleRequest.bind(null, repo, workspace)));
+  server.on('close', () => workspace.dispose());
 
   return new Promise((resolve, reject) => {
-    let port = options?.port ?? 7000, host = options?.host;
+    let port = options?.port ?? 7000, host = options?.host ?? 'localhost';
     const onError = (e: Error & { code?: string; }) => {
       if (e.code === 'EADDRINUSE') {
         server.listen(++port, host);
@@ -49,7 +52,7 @@ function catchAll(handler: (req: http.IncomingMessage, res: http.ServerResponse)
   });
 }
 
-async function handleRequest(repo: Repository, req: http.IncomingMessage, res: http.ServerResponse) {
+async function handleRequest(repo: Repository, workspace: Workspace, req: http.IncomingMessage, res: http.ServerResponse) {
   let pathname = req.url || '/';
   let idx: number, query: URLSearchParams | undefined;
   if (~(idx = pathname.indexOf('?', 1))) {
@@ -59,14 +62,18 @@ async function handleRequest(repo: Repository, req: http.IncomingMessage, res: h
   if (pathname.includes('%')) try {
     pathname = decodeURIComponent(pathname);
   } catch { }
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Origin, Content-Type, Accept, Range');
   if (req.method === 'OPTIONS') {
     res.writeHead(200);
     res.end();
     return;
   }
   if (req.method === 'GET') {
+    const source = Number(query?.get('source') ?? FileSource.Snapshot);
+    if ((pathname === '/show' || pathname === '/symbols') && source !== FileSource.Snapshot && source !== FileSource.External) {
+      res.writeHead(400);
+      res.end('Invalid file source');
+      return;
+    }
     if (pathname === '/' || pathname === '/index.html') {
       send(req, res, indexHTML, 'text/html');
     } else if (pathname === '/browser.js') {
@@ -78,6 +85,8 @@ async function handleRequest(repo: Repository, req: http.IncomingMessage, res: h
     } else if (pathname === '/log') { // /log?skip=42
       const skip = Number.parseInt(query?.get('skip') ?? '0', 10) || undefined;
       await sendLog(req, res, repo, skip);
+    } else if (pathname === '/revision') {
+      send(req, res, JSON.stringify(await repo.resolveRevision(query?.get('ref') ?? '')), 'application/json');
     } else if (pathname === '/tree') { // /tree?ref=HEAD
       const ref = query?.get('workingTree') === '1' ? undefined : query?.get('ref') || 'HEAD';
       await sendTree(req, res, repo, ref);
@@ -88,11 +97,30 @@ async function handleRequest(repo: Repository, req: http.IncomingMessage, res: h
       const ref = query?.get('workingTree') === '1' ? undefined : query?.get('ref') || 'HEAD';
       const path = query?.get('path');
       if (path) {
-        await sendBlob(req, res, repo, ref, path);
+        const file = await workspace.file(ref, { source, path });
+        const buffer = Buffer.from(file.bytes);
+        res.setHeader('X-File-Version', file.version);
+        send(req, res, buffer, buffer.subarray(0, 8000).includes(0) ? 'application/octet-stream' : 'text/plain', `"${file.version}"`);
       } else {
         res.statusCode = 400;
         res.end();
       }
+    } else if (pathname === '/symbols') {
+      const action = Number(query?.get('action'));
+      if (!query?.get('action') || !Number.isInteger(action) || action < SymbolAction.FileSymbols || action > SymbolAction.Index) {
+        res.writeHead(400);
+        res.end('Invalid symbol action');
+        return;
+      }
+      const ref = query?.get('workingTree') === '1' ? undefined : query?.get('ref') || 'HEAD';
+      const file = query?.get('path');
+      const result = await workspace.symbols(ref, {
+        action,
+        file: file ? { source, path: file } : undefined,
+        version: query?.get('version') ?? undefined,
+        position: Number(query?.get('position') ?? 0),
+      });
+      send(req, res, JSON.stringify(result), 'application/json');
     } else {
       res.statusCode = 404;
       res.end();
@@ -101,12 +129,6 @@ async function handleRequest(repo: Repository, req: http.IncomingMessage, res: h
     res.statusCode = 405;
     res.end();
   }
-}
-
-async function sendBlob(req: http.IncomingMessage, res: http.ServerResponse, repo: Repository, ref: string | undefined, path: string): Promise<void> {
-  const buffer = ref ? await repo.buffer(ref, path) : await repo.workingBuffer(path);
-  const binary = buffer.subarray(0, 8000).indexOf(0) >= 0;
-  send(req, res, buffer, binary ? 'application/octet-stream' : 'text/plain');
 }
 
 async function sendTree(req: http.IncomingMessage, res: http.ServerResponse, repo: Repository, ref?: string): Promise<void> {
@@ -137,6 +159,8 @@ function sendFile(req: http.IncomingMessage, res: http.ServerResponse, uri: URL,
     return;
   }
   const etag = `W/"${stat.size.toString(16)}-${stat.mtime.getTime()}"`;
+  res.setHeader('ETag', etag);
+  res.setHeader('Cache-Control', 'no-cache');
   if (req.headers['if-none-match'] === etag) {
     res.statusCode = 304;
     res.end();
@@ -145,16 +169,16 @@ function sendFile(req: http.IncomingMessage, res: http.ServerResponse, uri: URL,
   const headers: http.OutgoingHttpHeaders = {
     'content-length': stat.size,
     'content-type': contentType,
-    'etag': etag,
     'cache-control': "no-cache",
   };
   res.writeHead(200, headers);
   fs.createReadStream(uri).pipe(res, { end: true });
 }
 
-function send(req: http.IncomingMessage, res: http.ServerResponse, content: string | Buffer, contentType: string): void {
-  const etag = `W/"${len(content).toString(16)}-${hash(content)}"`;
-  if (req.headers['if-none-match'] === etag) {
+function send(req: http.IncomingMessage, res: http.ServerResponse, content: string | Buffer, contentType: string, etag?: string): void {
+  res.setHeader('Cache-Control', 'no-cache');
+  if (etag) res.setHeader('ETag', etag);
+  if (etag && req.headers['if-none-match'] === etag) {
     res.statusCode = 304;
     res.end();
     return;
@@ -162,7 +186,6 @@ function send(req: http.IncomingMessage, res: http.ServerResponse, content: stri
   const headers: http.OutgoingHttpHeaders = {
     'content-length': len(content),
     'content-type': contentType,
-    'etag': etag,
     'cache-control': "no-cache",
   };
   res.writeHead(200, headers);
@@ -171,10 +194,6 @@ function send(req: http.IncomingMessage, res: http.ServerResponse, content: stri
 
 function len(content: string | Buffer) {
   return typeof content === 'string' ? Buffer.byteLength(content, 'utf8') : content.length;
-}
-
-function hash(content: string | Buffer) {
-  return crypto.createHash('sha1').update(content as string, 'utf8').digest('base64').slice(0, 27);
 }
 
 function findGitRepo(p: string): string {

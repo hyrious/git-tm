@@ -1,5 +1,5 @@
-import { disposableStore, type IDisposable } from '@wopjs/disposable';
 import { appendChild, listen } from '@wopjs/dom';
+import { Disposable } from '../common/disposable';
 import { $ } from './dom';
 import { ScrollbarState } from './scrollbar-state';
 
@@ -18,8 +18,7 @@ interface Drag {
 }
 
 // The positioned parent owns the overlay; the viewport keeps native scrolling.
-export class Scrollbars implements IDisposable {
-  private readonly _store = disposableStore();
+export class Scrollbars extends Disposable {
   private readonly host: HTMLElement;
   private readonly layer: HTMLElement;
   private readonly axes: Axis[] = [];
@@ -27,6 +26,7 @@ export class Scrollbars implements IDisposable {
   private frame = 0;
 
   constructor(private readonly viewport: HTMLElement, content?: HTMLElement) {
+    super();
     this.host = viewport.parentElement!;
     this.layer = appendChild(this.host, $('.scrollbars'));
     this.layer.setAttribute('aria-hidden', 'true');
@@ -37,19 +37,25 @@ export class Scrollbars implements IDisposable {
       const thumb = appendChild(track, $('.scrollbar-thumb'));
       const axis: Axis = { vertical, track, thumb, state: new ScrollbarState(), length: 0 };
       this.axes.push(axis);
-      this._store.add(listen(track, 'pointerdown', e => this.startDrag(axis, e)));
-      this._store.add(listen(track, 'pointermove', e => this.moveDrag(e)));
-      this._store.add(listen(track, 'pointerup', e => this.finishDrag(e)));
-      this._store.add(listen(track, 'pointercancel', e => this.finishDrag(e)));
-      this._store.add(listen(track, 'lostpointercapture', e => this.finishDrag(e)));
-      this._store.add(listen(track, 'click', e => e.stopPropagation()));
+      this._register(listen(track, 'pointerdown', e => this.startDrag(axis, e)));
+      this._register(listen(track, 'pointermove', e => this.moveDrag(e)));
+      this._register(listen(track, 'pointerup', e => this.finishDrag(e)));
+      this._register(listen(track, 'pointercancel', e => this.finishDrag(e)));
+      this._register(listen(track, 'lostpointercapture', e => this.finishDrag(e)));
+      this._register(listen(track, 'click', e => e.stopPropagation()));
     }
-    this._store.add(listen(viewport, 'scroll', () => this.schedule(), { passive: true }));
-    this._store.add(listen(this.layer, 'wheel', e => {
+    this._register(listen(viewport, 'scroll', () => this.schedule(), { passive: true }));
+    this._register(listen(this.layer, 'wheel', e => {
       if (e.ctrlKey) return;
       const line = parseFloat(getComputedStyle(viewport).lineHeight) || 16;
-      const dx = e.deltaX * (e.deltaMode === 1 ? line : e.deltaMode === 2 ? viewport.clientWidth : 1);
-      const dy = e.deltaY * (e.deltaMode === 1 ? line : e.deltaMode === 2 ? viewport.clientHeight : 1);
+      let dx = e.deltaX, dy = e.deltaY;
+      if (e.deltaMode === 1) {
+        dx *= line;
+        dy *= line;
+      } else if (e.deltaMode === 2) {
+        dx *= viewport.clientWidth;
+        dy *= viewport.clientHeight;
+      }
       const top = viewport.scrollTop, left = viewport.scrollLeft;
       viewport.scrollBy({ left: e.shiftKey && !dx ? dy : dx, top: e.shiftKey && !dx ? 0 : dy, behavior: 'instant' });
       if (viewport.scrollTop !== top || viewport.scrollLeft !== left) e.preventDefault();
@@ -60,7 +66,7 @@ export class Scrollbars implements IDisposable {
     if (content) resize.observe(content);
     const mutation = new MutationObserver(() => this.schedule());
     mutation.observe(viewport, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['style', 'class'] });
-    this._store.add(() => { resize.disconnect(); mutation.disconnect(); });
+    this._register(() => { resize.disconnect(); mutation.disconnect(); });
     this.schedule();
   }
 
@@ -140,10 +146,10 @@ export class Scrollbars implements IDisposable {
     if (drag.axis.track.hasPointerCapture(drag.id)) drag.axis.track.releasePointerCapture(drag.id);
   }
 
-  dispose(): void {
+  override dispose(): void {
     this.finishDrag();
     cancelAnimationFrame(this.frame);
-    this._store.dispose();
+    super.dispose();
     this.layer.remove();
     this.viewport.classList.remove('scrollbar-viewport');
     this.host.classList.remove('scrollbar-host');

@@ -1,18 +1,17 @@
-import { disposableStore, type IDisposable } from '@wopjs/disposable';
 import { batch, combine, reactiveMap } from '@embra/reactivity';
 import { isTruthy } from '@wopjs/cast';
+import { Disposable } from '../common/disposable';
 
-class StyleMod implements IDisposable {
-
-  private readonly _store = disposableStore();
+class StyleMod extends Disposable {
 
   private readonly sheet = new CSSStyleSheet();
-  private readonly staticRules = this._store.add(reactiveMap<string, string>());
-  private readonly dynamicRules = this._store.add(reactiveMap<string, string>());
+  private readonly staticRules = this._register(reactiveMap<string, string>());
+  private readonly dynamicRules = this._register(reactiveMap<string, string>());
 
   constructor() {
+    super();
     document.adoptedStyleSheets = [this.sheet];
-    this._store.add(combine([this.staticRules.$, this.dynamicRules.$]).subscribe(([map, map2]) => {
+    this._register(combine([this.staticRules.$, this.dynamicRules.$]).subscribe(([map, map2]) => {
       let code = Array.from(map.values()).join('\n');
       for (let a of map2.values()) if (a) {
         code += '\n' + a;
@@ -27,7 +26,11 @@ class StyleMod implements IDisposable {
 
   derive(id: string) {
     const set = (sheet: { [selector: string]: { [prop: string]: string | number; } | null; }) => {
-      this.dynamicRules.set(id, Object.entries(sheet).map(([sel, spec]) => spec && _stringify(sel, spec)).filter(isTruthy).join('\n'));
+      const rules = Object.entries(sheet)
+        .map(([sel, spec]) => spec && _stringify(sel, spec))
+        .filter(isTruthy)
+        .join('\n');
+      this.dynamicRules.set(id, rules);
     };
     const dispose = () => {
       batch(() => this.dynamicRules.delete(id));
@@ -35,8 +38,8 @@ class StyleMod implements IDisposable {
     return { set, dispose };
   }
 
-  dispose() {
-    this._store.dispose();
+  override dispose() {
+    super.dispose();
     document.adoptedStyleSheets = [];
   }
 }
