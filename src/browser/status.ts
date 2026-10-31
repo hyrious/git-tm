@@ -26,7 +26,6 @@ export class Status extends Widget {
   override initialize(this: Writable<this>): void {
     const $gitBranch = appendChild(this.parent, $('button.git-branch'));
     $gitBranch.type = 'button';
-    $gitBranch.setAttribute('popovertarget', 'git-branch-menu');
     $gitBranch.setAttribute('aria-haspopup', 'menu');
     $gitBranch.setAttribute('aria-keyshortcuts', 'b');
     appendChild($gitBranch, i('source-control'));
@@ -37,7 +36,6 @@ export class Status extends Widget {
     $menu.tabIndex = -1;
     $menu.setAttribute('role', 'menu');
     $menu.ariaLabel = 'Branches';
-    $menu.popover = "";
     $menu.id = 'git-branch-menu';
     const $content = appendChild($menu, $('.menu-content'));
     this._register(new Scrollbars($content));
@@ -80,6 +78,7 @@ export class Status extends Widget {
         const branches = this.branches;
         return branches.find(branch => branch.textContent === this.branch$.value) || branches[0];
       },
+      dismissWithin: $menu,
     }));
 
     this._register(new MenuNavigation(
@@ -129,13 +128,17 @@ export class Status extends Widget {
   }
 
   openBranches(): void {
+    const wasOpen = this.popover.open;
     this.changes.close();
-    this.popover.reveal();
+    if (wasOpen) this.popover.close(true);
+    else this.popover.toggle();
   }
 
   openChanges(): void {
+    const wasOpen = this.changes.popover.open;
     this.closeBranches();
-    this.changes.open();
+    if (wasOpen) this.changes.close();
+    else this.changes.open();
   }
 
   closeMenus(): void {

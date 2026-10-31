@@ -34,7 +34,6 @@ export class Changes extends Widget {
   override initialize(this: Writable<this>): void {
     const $button = this.$button = appendChild(this.parent, $('button.changes-button'));
     $button.type = 'button';
-    $button.setAttribute('popovertarget', 'changes-menu');
     $button.setAttribute('aria-haspopup', 'menu');
     $button.ariaLabel = 'Changed files';
     appendChild($button, i('diff'));
@@ -44,7 +43,6 @@ export class Changes extends Widget {
 
     const $menu = this.$menu = appendChild(this.parent, $('.changes-menu'));
     $menu.id = 'changes-menu';
-    $menu.popover = '';
     $menu.tabIndex = -1;
     $menu.setAttribute('role', 'menu');
     $menu.ariaLabel = 'Changed files';
@@ -56,12 +54,9 @@ export class Changes extends Widget {
       $menu,
       shortcut: 'd',
       focus: () => this.items[0],
-    }));
-    this._register(listen(window, 'pointerdown', e => {
-      if (this.popover.opening && !this.parent.contains(e.target as Node)) this.close();
-    }));
-    this._register(listen($button, 'blur', () => {
-      this.popover.opening = false;
+      ready: () => this.ready,
+      onLoad: () => { if (this.snapshot && !this.ready) void this.load(); },
+      dismissWithin: this.parent,
     }));
 
     const open = ($item: HTMLElement, focus: boolean) => {
@@ -173,18 +168,12 @@ export class Changes extends Widget {
 
     if (request === this.request) {
       this.ready = true;
-      if (this.popover.opening) this.open();
+      this.popover.notify();
     }
   }
 
   open(): void {
-    if (!this.snapshot) return;
-    if (!this.ready) {
-      this.popover.show();
-      return;
-    }
-
-    this.popover.reveal();
+    if (this.snapshot) this.popover.toggle();
   }
 
   close(): void {

@@ -38,9 +38,7 @@ export class Scrollable<Item, Template = HTMLDivElement> extends Disposable {
   readonly onDblClick: IEvent<number>;
   readonly visibleRange$: Readable<Range>;
 
-  /** Equals to `options.container`, used to track the visual size and scroll position. */
   readonly $dom: HTMLElement;
-  /** The direct child of `this.$dom`, scrolls with its parent and holds absolutely positioned items. */
   readonly $content: HTMLDivElement;
 
   private static nextId = 0;

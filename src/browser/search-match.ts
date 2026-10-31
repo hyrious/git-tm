@@ -4,7 +4,6 @@ export function fuzzyScore(pattern: string, text: string, positions?: number[]):
   if (positions) positions.length = 0;
   if (!pattern) return 100;
   if (pattern.length > text.length) return -Infinity;
-  // Reject non-matches before allocating the scoring tables.
   let matched = 0;
   for (let i = 0; i < text.length && matched < pattern.length; i++) {
     if (pattern[matched].toUpperCase() === text[i].toUpperCase()) matched++;

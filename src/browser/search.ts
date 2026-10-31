@@ -151,7 +151,7 @@ export class Search extends Widget {
       'Mod+k': () => this.toggle(SearchMode.Commits),
       'Mod+Shift+k': { when: () => this.root.editor.canCompare(), run: () => this.toggle(SearchMode.Commits, true) },
       'Mod+r': { when: canQuerySymbols, run: () => this.toggle(SearchMode.FileSymbols) },
-      'Mod+Alt+o': { when: canQuerySymbols, run: () => this.toggle(SearchMode.FileSymbols) },
+      'Mod+Shift+o': { when: canQuerySymbols, run: () => this.toggle(SearchMode.FileSymbols) },
       'Mod+Shift+r': { when: canQuerySymbols, run: () => this.toggle(SearchMode.WorkspaceSymbols) },
       'F12': { when: canQuerySymbols, run: () => this.toggle(SearchMode.Definition) },
       'Shift+F12': { when: canQuerySymbols, run: () => this.toggle(SearchMode.References) },

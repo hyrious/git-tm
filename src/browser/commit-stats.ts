@@ -11,7 +11,6 @@ interface StatRequest {
   running: boolean;
 }
 
-/** Only visible commits retain queued or running requests. */
 export class CommitStats {
   private readonly cache = flru<CommitShortStat>(200);
   private readonly pending = new Map<string, StatRequest>();
@@ -47,7 +46,6 @@ export class CommitStats {
   private schedule(): void {
     if (this.scheduled || this.disposed) return;
     this.scheduled = true;
-    // Coalesce row creation and disposal during the same render.
     queueMicrotask(() => {
       this.scheduled = false;
       for (const request of this.pending.values()) {

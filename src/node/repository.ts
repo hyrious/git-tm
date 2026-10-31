@@ -13,7 +13,6 @@ import { STEP } from '../common/base';
 
 export interface LogOptions {
   readonly skip?: number;
-  /** Default {@link STEP}. */
   readonly limit?: number | { readonly id: string; };
   readonly head?: string;
 }

@@ -4,7 +4,7 @@ import type { DiffFile, DiffRange, Snapshot } from '../common/git';
 
 import { writable } from '@embra/reactivity';
 import { appendChild, listen } from '@wopjs/dom';
-import { Compartment, EditorState, StateEffect, type Extension } from '@codemirror/state';
+import { Compartment, EditorSelection, EditorState, StateEffect, type Extension } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, drawSelection, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers } from '@codemirror/view';
 import { defaultKeymap } from '@codemirror/commands';
 import { bracketMatching, foldGutter, foldKeymap, LanguageDescription } from '@codemirror/language';
@@ -553,6 +553,19 @@ export class Editor extends Widget {
     editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: text } });
   }
 
+  static moveLines(view: EditorView, forward: boolean, select: boolean, lines = 10): boolean {
+    const { state } = view;
+    if (state.selection.ranges.some(range => !range.empty)) return false;
+    const selection = EditorSelection.create(state.selection.ranges.map(range => {
+      let head = range.head;
+      for (let i = 0; i < lines; i++) head = view.moveVertically(EditorSelection.cursor(head), forward).head;
+      return select ? EditorSelection.range(range.anchor, head) : EditorSelection.cursor(head);
+    }), state.selection.mainIndex);
+    if (selection.eq(state.selection)) return false;
+    view.dispatch({ selection, scrollIntoView: true, userEvent: 'select' });
+    return true;
+  }
+
   extensions(path: string, label: string): Extension {
     const language = new Compartment();
     const description = LanguageDescription.matchFilename(languages, path);
@@ -569,7 +582,13 @@ export class Editor extends Widget {
       }),
       lineNumbers(), highlightActiveLineGutter(), highlightActiveLine(), drawSelection(),
       bracketMatching(), foldGutter({ openText: '\uEAB4', closedText: '\uEAB6' }), this.matches.of([]),
-      keymap.of([...defaultKeymap, ...foldKeymap]),
+      keymap.of([
+        { key: 'PageUp', run: view => Editor.moveLines(view, false, false) },
+        { key: 'PageDown', run: view => Editor.moveLines(view, true, false) },
+        { key: 'Shift-PageUp', run: view => Editor.moveLines(view, false, true) },
+        { key: 'Shift-PageDown', run: view => Editor.moveLines(view, true, true) },
+        ...defaultKeymap, ...foldKeymap,
+      ]),
       this.theme.of(this.colorScheme.matches ? modernDark : modernLight),
       ViewPlugin.define(view => {
         const scrollbars = new Scrollbars(view.scrollDOM, view.contentDOM);
@@ -611,7 +630,6 @@ export class Editor extends Widget {
   formatRange(range: DiffRange): string {
     const base = range.base ? this.refLabel(range.base) : 'working tree';
     const target = range.target ? this.refLabel(range.target) : 'working tree';
-    // `working tree` on either side is implied by the diff view, keep only the commit side.
     if (!range.target) return base === 'working tree' ? '' : base;
     if (!range.base) return target;
     return `${base}..${target}`;

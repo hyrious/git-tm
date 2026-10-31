@@ -35,11 +35,9 @@ export interface Ref {
 }
 
 export interface LsTreeElement {
-  /** For example, `100644`. */
   readonly mode: string;
   readonly type: 'commit' | 'blob' | 'tree';
   readonly object: string;
-  /** Bytes, folders will be `-`. */
   readonly size: string;
   readonly file: string;
 }
@@ -70,9 +68,7 @@ export interface Revision {
 }
 
 export interface DiffRange {
-  /** An empty base means the working directory. */
   readonly base: string;
-  /** A missing target means the working directory. */
   readonly target?: string;
 }
 
@@ -80,7 +76,6 @@ export interface DiffFile {
   readonly status: string;
   readonly oldPath: string;
   readonly newPath: string;
-  /** Binary files have no line counts. */
   readonly insertions: number | null;
   readonly deletions: number | null;
 }
@@ -90,7 +85,6 @@ export interface Diff {
   readonly files: DiffFile[];
 }
 
-/** The working directory has an empty ID. */
 export function snapshotId(snapshot: Snapshot): string {
   return snapshot.kind === SnapshotKind.Commit ? snapshot.hash : '';
 }

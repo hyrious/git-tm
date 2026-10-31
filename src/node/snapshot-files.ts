@@ -16,7 +16,6 @@ interface CachedFile {
   readonly version: string;
 }
 
-/** The editor and language service read the same versioned files. */
 export class SnapshotFiles {
   readonly library = path.dirname(createRequire(import.meta.url).resolve('typescript'));
   readonly entries = new Map<string, LsTreeElement>();
@@ -100,7 +99,6 @@ export class SnapshotFiles {
     return file === this.repo.root || file.startsWith(this.repo.root + path.sep);
   }
 
-  /** A path is visible when the snapshot tracks it or it is an allowed dependency. */
   private canAccess(file: string): boolean {
     file = normalize(file);
     return this.entries.has(file) || this.directories.has(file) || this.diskAllowed(file);

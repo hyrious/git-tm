@@ -1,6 +1,9 @@
 import { appendChild } from '@wopjs/dom';
 import { $ } from './dom';
 import { Widget } from './widget';
+import { Scrollbars } from './scrollbars';
+import { Popover } from './popover';
+import { bindKeys } from './keybindings';
 
 export class Help extends Widget {
   override initialize(): void {
@@ -9,17 +12,16 @@ export class Help extends Widget {
     $button.type = 'button';
     $button.title = 'Keyboard shortcuts (?)';
     $button.ariaLabel = 'Keyboard shortcuts';
-    $button.setAttribute('popovertarget', 'keyboard-help');
     $button.setAttribute('aria-haspopup', 'dialog');
 
-    const $help = appendChild(document.body, $('.keyboard-help'));
+    const $help = appendChild(this.parent, $('.keyboard-help'));
     $help.id = 'keyboard-help';
-    $help.popover = 'auto';
     $help.tabIndex = -1;
     $help.setAttribute('role', 'dialog');
-    $help.setAttribute('aria-modal', 'true');
     $help.setAttribute('aria-labelledby', 'keyboard-help-title');
-    appendChild($help, $('h2#keyboard-help-title')).textContent = 'Keyboard shortcuts';
+    const $content = appendChild($help, $('.keyboard-help-content'));
+    this._register(new Scrollbars($content));
+    appendChild($content, $('h2#keyboard-help-title')).textContent = 'Keyboard shortcuts';
 
     const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
     const sections = [
@@ -42,7 +44,7 @@ export class Help extends Widget {
       ['Symbols (editor focused)', [
         ['Ctrl + -', 'Go back'],
         ['Ctrl + Shift + -', 'Forward'],
-        [`${mod} + R / ${mod} + Alt + O`, 'Find symbol in file'],
+        [`${mod} + R / ${mod} + Shift + O`, 'Find symbol in file'],
         [`${mod} + Shift + R`, 'Find all symbols'],
         ['F12', 'Go to definition'],
         ['Shift + F12', 'Find references'],
@@ -56,8 +58,8 @@ export class Help extends Widget {
       ]],
     ] as const;
     for (const [title, shortcuts] of sections) {
-      appendChild($help, $('h3')).textContent = title;
-      const $list = appendChild($help, $('dl'));
+      appendChild($content, $('h3')).textContent = title;
+      const $list = appendChild($content, $('dl'));
       for (const [key, description] of shortcuts) {
         const $keys = appendChild($list, $('dt'));
         for (const part of key.split(/ (\+|\/) /)) {
@@ -67,66 +69,35 @@ export class Help extends Widget {
         appendChild($list, $('dd')).textContent = description;
       }
     }
-    const $close = appendChild($help, $('button.help-close'));
+    const $close = appendChild($content, $('button.help-close'));
     $close.type = 'button';
     $close.append('Close ');
     appendChild($close, $('kbd')).textContent = 'Esc';
-    $close.onclick = () => $help.hidePopover();
 
-    let previousFocus: HTMLElement | null = null;
-    const background: HTMLElement[] = [];
-    $help.addEventListener('beforetoggle', e => {
-      if (e.newState === 'open') {
-        previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-        for (const element of document.body.children) {
-          if (element instanceof HTMLElement && element !== $help && !element.inert) {
-            background.push(element);
-            element.inert = true;
-          }
-        }
-      } else {
-        for (const element of background) element.inert = false;
-        background.length = 0;
-        if (previousFocus?.checkVisibility()) previousFocus.focus();
-        else $button.focus();
-      }
-    });
-    $help.addEventListener('toggle', () => {
-      if ($help.matches(':popover-open')) $help.focus();
-    });
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if ($help.matches(':popover-open')) {
-        e.stopImmediatePropagation();
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          $help.hidePopover();
-        } else if (e.key === 'Tab') {
-          e.preventDefault();
-          $close.focus();
-        }
-        return;
-      }
-      if (e.defaultPrevented || e.isComposing || e.altKey || e.ctrlKey || e.metaKey || e.key !== '?') return;
-      const target = e.target;
-      if (target instanceof HTMLElement) {
-        if (target.closest('input, textarea, select, dialog[open]')) return;
-        const view = this.root.editor.editor;
-        if (target.isContentEditable && !(view?.state.readOnly && view.contentDOM.contains(target))) return;
-      }
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      if (!e.repeat) $help.showPopover();
-    };
-    window.addEventListener('keydown', onKeyDown, true);
-    this._register(() => {
-      $help.hidePopover();
-      $help.remove();
-      $button.remove();
-      window.removeEventListener('keydown', onKeyDown, true);
-    });
+    const popover = this._register(new Popover({
+      $button,
+      $menu: $help,
+      shortcut: 'Shift+?',
+      focus: () => $help,
+      dismissWithin: $help,
+    }));
+    $close.onclick = () => popover.close(true);
+    this._register(bindKeys($help, { 'Escape': () => popover.close(true) }, true));
+    // The popover's own shortcut only fires from inside the menu, so open it here.
+    this._register(bindKeys(window, {
+      'Shift+?': {
+        when: e => popover.open || canShowHelp(e),
+        run: () => popover.toggle(),
+      },
+    }, true));
   }
 
   override layout(): void {
   }
+}
+
+function canShowHelp(e: KeyboardEvent): boolean {
+  const target = e.target;
+  if (!(target instanceof HTMLElement)) return true;
+  return !target.closest('input, textarea, select, dialog[open]');
 }

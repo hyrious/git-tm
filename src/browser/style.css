@@ -613,6 +613,7 @@ i {
   flex: none;
   margin-right: 13px;
   padding: 0 5px;
+  anchor-name: --help;
 }
 .help-button:hover {
   background: var(--hover);
@@ -634,25 +635,34 @@ kbd {
   vertical-align: 1px;
 }
 .keyboard-help {
-  position: fixed;
-  inset: 0;
-  margin: auto;
-  width: min(400px, calc(100vw - 24px));
-  max-height: calc(100vh - 48px);
-  overflow: auto;
-  padding: 16px 20px;
+  position: absolute;
+  position-anchor: --help;
+  inset: unset;
+  right: anchor(--help right);
+  bottom: anchor(--help top);
+  margin: 0;
+  width: max-content;
+  max-width: min(560px, calc(100vw - 24px));
+  max-height: calc(100vh - 50px);
+  overflow: hidden;
+  padding: 0;
   border: 1px solid var(--border);
-  border-radius: 4px;
   background: var(--background);
   color: var(--foreground);
   box-shadow: 0 4px 16px #0003;
 }
-.keyboard-help::backdrop {
-  background: #0003;
+.keyboard-help:popover-open {
+  display: flex;
+  flex-direction: column;
+}
+.keyboard-help-content {
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 16px;
 }
 .keyboard-help h2 {
-  margin: 0 0 16px;
-  font-size: 16px;
+  margin: 0 0 12px;
+  font-size: 14px;
 }
 .keyboard-help h3 {
   margin: 12px 0 6px;
@@ -670,12 +680,11 @@ kbd {
 }
 .help-close {
   display: block;
-  margin: 16px 0 0 auto;
+  margin: 12px 0 0 auto;
   padding: 4px;
   border: none;
   background: transparent;
   color: inherit;
-  font: inherit;
   cursor: pointer;
 }
 .del {

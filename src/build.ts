@@ -56,7 +56,6 @@ async function _rebuild() {
 }
 
 function rebuild(): Promise<void> {
-  // esbuild prints errors already.
   return _rebuild().catch(noop);
 }
 

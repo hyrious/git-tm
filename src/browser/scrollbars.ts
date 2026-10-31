@@ -17,7 +17,6 @@ interface Drag {
   readonly fraction: number;
 }
 
-// The positioned parent owns the overlay; the viewport keeps native scrolling.
 export class Scrollbars extends Disposable {
   private readonly $host: HTMLElement;
   private readonly $layer: HTMLElement;

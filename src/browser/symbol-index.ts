@@ -61,7 +61,6 @@ export class SymbolIndex {
         this.files.set(path, { ...file, version: contents.version, locations });
         this.add(locations);
       } catch {
-        // Files without a usable syntax parser do not prevent semantic indexing.
       } finally {
         if (active()) progress(Math.floor(++completed * 100 / paths.length));
       }
@@ -80,7 +79,6 @@ interface IndexTask {
   error: unknown;
 }
 
-/** A snapshot owns its index independently of any search dialog. */
 export class SnapshotIndex extends Disposable {
   readonly progress$ = this._register(writable<number | undefined | null>(null));
   current: IndexTask | undefined;

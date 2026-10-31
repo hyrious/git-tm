@@ -18,7 +18,6 @@ export class ScrollbarState {
   update(offset: number, viewport: number, total: number, append = false): void {
     const range = Math.max(0, total - viewport);
     offset = Math.max(0, Math.min(range, offset));
-    // A thumb already at an endpoint must expose newly available scroll space.
     const preserve = append && total >= this.total && viewport === this.viewport &&
       this.offset > 0 && this.offset < this.range;
     if ((total !== this.total || viewport !== this.viewport) && !preserve) {
@@ -64,8 +63,6 @@ export class ScrollbarState {
     return { offset: next.size < 1 ? (track - size) * next.offset / (1 - next.size) : 0, size };
   }
 
-  // Invert the same mapping used for painting, including the minimum thumb size.
-  // This keeps the grabbed point under the pointer as the thumb changes size.
   scrollAt(pointer: number, track: number, fraction: number): number {
     let low = 0, high = this.range;
     for (let i = 0; i < 32; i++) {

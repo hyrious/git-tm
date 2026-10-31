@@ -39,7 +39,6 @@ const parser: StreamParser<MoonBitState> = {
   tokenTable,
   token(stream, state) {
     if (state.inBlockComment) {
-      // Block comments nest.
       let depth = 1;
       while (depth > 0 && !stream.eol()) {
         if (stream.match('/*')) depth++;
@@ -64,7 +63,6 @@ const parser: StreamParser<MoonBitState> = {
       state.inBlockComment = depth > 0;
       return 'comment';
     }
-    // Attributes: #derive(...), #extern, #deprecated(...)
     if (stream.match(/^#!?[A-Za-z_][\w.]*/)) return 'attribute';
     if (stream.match(/^[rub]?"/)) {
       while (!stream.eol()) {

@@ -5,7 +5,6 @@ import { DocInput, LanguageDescription, StreamLanguage, syntaxTree, syntaxTreeAv
 import { languages } from './languages';
 import { getStyleTags, Tag, tags } from '@lezer/highlight';
 
-/** Extract declarations identified by the language's highlighting metadata. */
 export async function syntaxSymbols(file: FileReference, state: EditorState, version: string | undefined, active: () => boolean): Promise<SymbolLocation[]> {
   const description = LanguageDescription.matchFilename(languages, file.path);
   if (!description) return [];

@@ -79,7 +79,6 @@ export namespace Tree {
 
 }
 
-// Git doesn't have a "folder" concept, so not need to check the blob type.
 export function makeTree(elements: LsTreeElement[]): Tree<LsTreeElement> {
   const tree: Tree<LsTreeElement> = { children: [], collapsible: false, collapsed: false };
 

@@ -21,10 +21,6 @@ import { moonbit } from './moonbit';
 let js: LanguageSupport | undefined, ts: LanguageSupport | undefined;
 let jsx: LanguageSupport | undefined, tsx: LanguageSupport | undefined;
 
-/**
- * `@codemirror/language-data` covers most languages. This list adds the ones
- * it misses and overrides the ones mapped to a less specific mode.
- */
 const extra: readonly LanguageDescription[] = [
   LanguageDescription.of({ name: 'CMake', extensions: ['cmake'], support: new LanguageSupportClass(StreamLanguage.define(cmake)) }),
   LanguageDescription.of({ name: 'CSS', extensions: ['css'], support: css() }),

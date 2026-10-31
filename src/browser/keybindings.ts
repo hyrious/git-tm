@@ -9,7 +9,6 @@ export interface KeybindingWhen {
 }
 
 export interface Keybinding {
-  /** Repeated keydowns are consumed without running unless enabled. */
   readonly repeat?: boolean;
   readonly when?: KeybindingWhen;
   readonly run: KeybindingRun;

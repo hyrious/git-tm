@@ -43,9 +43,7 @@ export class ImagePreview extends Disposable {
     this.zoom.textContent = 'Fit';
     this.zoom.ariaLabel = 'Image zoom';
     this.zoom.setAttribute('aria-haspopup', 'menu');
-    this.zoom.setAttribute('popovertarget', 'image-zoom-menu');
     this.menu.id = 'image-zoom-menu';
-    this.menu.popover = '';
     this.menu.tabIndex = -1;
     this.menu.setAttribute('role', 'menu');
     this.menu.ariaLabel = 'Image zoom';

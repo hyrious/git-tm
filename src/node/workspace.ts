@@ -29,7 +29,6 @@ interface PendingRequest {
   dispose(): void;
 }
 
-/** File reads and syntax queries stay responsive while semantic indexing runs. */
 export class Workspace {
   private readonly files: WorkspaceWorker;
   private readonly semantic: WorkspaceWorker;
