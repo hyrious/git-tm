@@ -150,22 +150,25 @@ function _renderTracks($tracks: HTMLElement, tracks: readonly (GraphTrack | null
   $svg.setAttribute('height', String(ITEM_HEIGHT));
   $svg.setAttribute('viewBox', `0 0 ${width} ${ITEM_HEIGHT}`);
   $svg.setAttribute('fill', 'none');
+  $svg.setAttribute('stroke-width', '1');
+  $svg.setAttribute('stroke-linecap', 'butt');
+  $svg.setAttribute('overflow', 'visible');
 
   const middle = ITEM_HEIGHT / 2, quarter = ITEM_HEIGHT / 4;
   for (const track of tracks) {
     if (!track) continue;
-    const x = track.depth * 12 + 6;
+    const x = track.depth * 12 + 6.5;
     for (const edge of track.incoming) {
-      const start = edge.column * 12 + 6;
+      const start = edge.column * 12 + 6.5;
       const $path = appendChild($svg, svgElement('path'));
-      $path.setAttribute('d', `M${start} 0 C${start} ${quarter}, ${x} ${quarter}, ${x} ${middle}`);
+      $path.setAttribute('d', `M${start} -0.5 C${start} ${quarter}, ${x} ${quarter}, ${x} ${middle}`);
       $path.setAttribute('stroke', `var(--track-${edge.column % MAX_TRACKS})`);
       if (edge.dashed) $path.setAttribute('stroke-dasharray', '4');
     }
     for (const edge of track.outgoing) {
-      const end = edge.column * 12 + 6;
+      const end = edge.column * 12 + 6.5;
       const $path = appendChild($svg, svgElement('path'));
-      $path.setAttribute('d', `M${x} ${middle} C${x} ${middle + quarter}, ${end} ${middle + quarter}, ${end} ${ITEM_HEIGHT}`);
+      $path.setAttribute('d', `M${x} ${middle} C${x} ${middle + quarter}, ${end} ${middle + quarter}, ${end} ${ITEM_HEIGHT + 0.5}`);
       $path.setAttribute('stroke', `var(--track-${edge.column % MAX_TRACKS})`);
       if (edge.dashed) $path.setAttribute('stroke-dasharray', '4');
     }
@@ -173,7 +176,7 @@ function _renderTracks($tracks: HTMLElement, tracks: readonly (GraphTrack | null
   for (const track of tracks) {
     if (!track?.active) continue;
     const $circle = appendChild($svg, svgElement('circle'));
-    $circle.setAttribute('cx', String(track.depth * 12 + 6));
+    $circle.setAttribute('cx', String(track.depth * 12 + 6.5));
     $circle.setAttribute('cy', String(ITEM_HEIGHT / 2));
     $circle.setAttribute('r', '4');
     $circle.setAttribute('fill', `var(--track-${track.depth % MAX_TRACKS})`);

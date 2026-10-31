@@ -366,6 +366,11 @@ i {
 .tracks {
   flex: none;
   display: flex;
+  isolation: isolate;
+}
+.tracks > svg {
+  display: block;
+  overflow: visible;
 }
 .commit-content {
   flex: 1;
