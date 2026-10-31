@@ -10,6 +10,7 @@ import { $, clearElement } from './dom';
 import { Widget } from './widget';
 import { i } from './icon';
 import { MenuNavigation } from './menu-navigation';
+import { Popover } from './popover';
 import { Scrollbars } from './scrollbars';
 import { bindKeys } from './keybindings';
 
@@ -22,20 +23,19 @@ export class Changes extends Widget {
   readonly $del: HTMLElement;
   readonly $ins: HTMLElement;
 
+  readonly popover: Popover;
+  readonly items: HTMLButtonElement[] = [];
+
   request = 0;
   diff: Diff | undefined;
   snapshot: Snapshot | undefined;
   ready = false;
-  opening = false;
-
-  readonly items: HTMLButtonElement[] = [];
 
   override initialize(this: Writable<this>): void {
     const $button = this.$button = appendChild(this.parent, $('button.changes-button'));
     $button.type = 'button';
     $button.setAttribute('popovertarget', 'changes-menu');
     $button.setAttribute('aria-haspopup', 'menu');
-    $button.setAttribute('aria-keyshortcuts', 'd');
     $button.ariaLabel = 'Changed files';
     appendChild($button, i('diff'));
     this.$label = appendChild($button, $('span'));
@@ -51,20 +51,17 @@ export class Changes extends Widget {
     this.$content = appendChild($menu, $('.menu-content'));
     this._register(new Scrollbars(this.$content));
 
-    this._register(listen($button, 'click', e => {
-      e.preventDefault();
-      if ($menu.matches(':popover-open') || this.opening) this.close();
-      else this.open();
+    this.popover = this._register(new Popover({
+      $button,
+      $menu,
+      shortcut: 'd',
+      focus: () => this.items[0],
     }));
     this._register(listen(window, 'pointerdown', e => {
-      if (this.opening && !this.parent.contains(e.target as Node)) this.close();
+      if (this.popover.opening && !this.parent.contains(e.target as Node)) this.close();
     }));
     this._register(listen($button, 'blur', () => {
-      this.opening = false;
-    }));
-    this._register(bindKeys($button, {
-      'Escape': () => this.close(),
-      'd': { when: () => this.opening, run: () => this.close() },
+      this.popover.opening = false;
     }));
 
     const open = ($item: HTMLElement, focus: boolean) => {
@@ -91,15 +88,10 @@ export class Changes extends Widget {
       },
       noop,
     ));
-    // Handle the closing shortcut before menu typeahead.
     this._register(bindKeys($menu, {
       'Enter,Space'(e) {
         const $item = (e.target as HTMLElement).closest<HTMLElement>('.change-file');
         if ($item) open($item, true);
-      },
-      'Escape,d': () => {
-        this.close();
-        $button.focus();
       },
     }, true));
 
@@ -181,26 +173,22 @@ export class Changes extends Widget {
 
     if (request === this.request) {
       this.ready = true;
-      if (this.opening) this.open();
+      if (this.popover.opening) this.open();
     }
   }
 
   open(): void {
     if (!this.snapshot) return;
     if (!this.ready) {
-      this.opening = true;
-      this.$button.focus();
+      this.popover.show();
       return;
     }
 
-    this.opening = false;
-    this.$menu.showPopover();
-    (this.items[0] || this.$menu).focus();
+    this.popover.reveal();
   }
 
   close(): void {
-    this.opening = false;
-    if (this.$menu?.matches(':popover-open')) this.$menu.hidePopover();
+    this.popover.close();
   }
 
   override layout(): void {

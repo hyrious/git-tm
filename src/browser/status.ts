@@ -7,6 +7,7 @@ import { Widget } from './widget';
 import { i } from './icon';
 import { Changes } from './changes';
 import { MenuNavigation } from './menu-navigation';
+import { Popover } from './popover';
 import { Scrollbars } from './scrollbars';
 import { bindKeys } from './keybindings';
 import { Help } from './help';
@@ -15,16 +16,19 @@ export class Status extends Widget {
 
   readonly $menu: HTMLElement;
   readonly $image: HTMLElement;
+
+  readonly popover: Popover;
   readonly changes: Changes;
+  readonly branches: HTMLElement[] = [];
 
   readonly branch$: ReactiveWritable<string | null>;
-  readonly branches: HTMLElement[] = [];
 
   override initialize(this: Writable<this>): void {
     const $gitBranch = appendChild(this.parent, $('button.git-branch'));
     $gitBranch.type = 'button';
     $gitBranch.setAttribute('popovertarget', 'git-branch-menu');
     $gitBranch.setAttribute('aria-haspopup', 'menu');
+    $gitBranch.setAttribute('aria-keyshortcuts', 'b');
     appendChild($gitBranch, i('source-control'));
 
     const $name = appendChild($gitBranch, $('span.git-branch-name'));
@@ -64,14 +68,19 @@ export class Status extends Widget {
       const $branch = (e.target as HTMLElement).closest<HTMLElement>('.menu-item');
       if ($branch) {
         void select($branch);
-        this.closeBranches();
+        this.closeBranches(true);
       }
     };
-    $gitBranch.onclick = e => {
-      e.preventDefault();
-      if ($menu.matches(':popover-open')) this.closeBranches();
-      else this.openBranches();
-    };
+
+    this.popover = this._register(new Popover({
+      $button: $gitBranch,
+      $menu,
+      shortcut: 'b',
+      focus: () => {
+        const branches = this.branches;
+        return branches.find(branch => branch.textContent === this.branch$.value) || branches[0];
+      },
+    }));
 
     this._register(new MenuNavigation(
       $menu,
@@ -79,10 +88,8 @@ export class Status extends Widget {
       item => item.textContent || '',
       item => { void select(item); },
     ));
-    // Handle the closing shortcut before menu typeahead.
     this._register(bindKeys($menu, {
       'Enter,Space': () => this.acceptBranch(select),
-      'Escape,b': () => this.closeBranches(),
     }, true));
 
     this.changes = this._register(new Changes(appendChild(this.parent, $('.changes-detail')), this.root));
@@ -123,10 +130,7 @@ export class Status extends Widget {
 
   openBranches(): void {
     this.changes.close();
-    this.$menu.showPopover();
-    const branches = this.branches;
-    const $branch = branches.find(branch => branch.textContent === this.branch$.value);
-    ($branch || branches[0] || this.$menu).focus();
+    this.popover.reveal();
   }
 
   openChanges(): void {
@@ -140,12 +144,8 @@ export class Status extends Widget {
     this.changes.close();
   }
 
-  closeBranches(): void {
-    if (this.$menu.matches(':popover-open')) {
-      const active = document.activeElement;
-      this.$menu.hidePopover();
-      if (active instanceof HTMLElement && this.$menu.contains(active)) active.blur();
-    }
+  closeBranches(focus = false): void {
+    this.popover.close(focus);
   }
 
   override layout(): void {

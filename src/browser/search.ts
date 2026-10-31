@@ -108,6 +108,7 @@ export class Search extends Widget {
   readonly $input: HTMLInputElement;
   readonly $list: HTMLElement;
   readonly $note: HTMLElement;
+
   readonly scrollbars: Scrollbars;
   readonly memory = new Map<SearchMode.File | SearchMode.Global, SearchMemory>();
 
@@ -717,13 +718,13 @@ export class Search extends Widget {
   private renderResults<T>(results: readonly T[], render: (row: HTMLElement, result: T) => void): void {
     const fragment = document.createDocumentFragment();
     results.forEach((result, index) => {
-      const row = $('.search-result');
-      row.id = `search-result-${index}`;
-      row.dataset.index = String(index);
-      row.setAttribute('role', 'option');
-      row.ariaSelected = String(index === this.selected);
-      render(row, result);
-      fragment.append(row);
+      const $row = $('.search-result');
+      $row.id = `search-result-${index}`;
+      $row.dataset.index = String(index);
+      $row.setAttribute('role', 'option');
+      $row.ariaSelected = String(index === this.selected);
+      render($row, result);
+      fragment.append($row);
     });
     this.$list.replaceChildren(fragment);
   }
@@ -740,22 +741,22 @@ function createState(mode: Mode, compare = false): SearchState {
 }
 
 function renderFile(row: HTMLElement, result: FileResult, input: string): void {
-  const title = appendChild(row, $('.search-result-title'));
+  const $title = appendChild(row, $('.search-result-title'));
   const positions: number[] = [];
   fuzzyScore(input, result.path, positions);
   const filename = result.path.lastIndexOf('/') + 1;
-  appendMatches(title, result.path.slice(filename), positions.filter(position => position >= filename).map(position => position - filename));
-  const detail = appendChild(row, $('.search-result-detail'));
-  appendMatches(detail, result.path, positions);
+  appendMatches($title, result.path.slice(filename), positions.filter(position => position >= filename).map(position => position - filename));
+  const $detail = appendChild(row, $('.search-result-detail'));
+  appendMatches($detail, result.path, positions);
   row.title = result.path;
 }
 
 function renderText(row: HTMLElement, { path, match }: TextResult): void {
   row.classList.add('search-result-match');
-  const title = appendChild(row, $('.search-result-title'));
-  const mark = $('mark');
-  mark.textContent = match.text.slice(match.start, match.end) || '▏';
-  title.append(match.prefix, mark, match.text.slice(match.end));
+  const $title = appendChild(row, $('.search-result-title'));
+  const $mark = $('mark');
+  $mark.textContent = match.text.slice(match.start, match.end) || '▏';
+  $title.append(match.prefix, $mark, match.text.slice(match.end));
   row.ariaLabel = `${path}:${match.line}:${match.column} ${match.text}`;
   row.title = `${path}:${match.line}:${match.column}\n${match.text}`;
 }
@@ -784,9 +785,9 @@ function appendMatches(parent: HTMLElement, text: string, positions: readonly nu
     const start = positions[i];
     let end = start + 1;
     while (positions[i + 1] === end) { i++; end++; }
-    const mark = $('mark');
-    mark.textContent = text.slice(start, end);
-    parent.append(text.slice(offset, start), mark);
+    const $mark = $('mark');
+    $mark.textContent = text.slice(start, end);
+    parent.append(text.slice(offset, start), $mark);
     offset = end;
   }
   parent.append(text.slice(offset));
@@ -815,15 +816,15 @@ function symbolSearchText(location: SymbolLocation, mode: SymbolMode): string {
 function renderSymbol(row: HTMLElement, location: SymbolLocation, mode: SymbolMode, input: string, locations: readonly SymbolLocation[] = [location]): void {
   row.classList.add('search-result-symbol');
   const kind = symbolKinds[location.kind.replace(/^local /, '')] ?? { label: '?', color: 'gray' };
-  const tag = appendChild(row, $('.search-symbol-kind'));
-  tag.textContent = kind.label;
-  tag.dataset.color = kind.color;
-  tag.title = location.kind;
-  tag.setAttribute('aria-hidden', 'true');
-  const content = appendChild(row, $('.search-symbol-content'));
+  const $tag = appendChild(row, $('.search-symbol-kind'));
+  $tag.textContent = kind.label;
+  $tag.dataset.color = kind.color;
+  $tag.title = location.kind;
+  $tag.setAttribute('aria-hidden', 'true');
+  const $content = appendChild(row, $('.search-symbol-content'));
   const text = symbolSearchText(location, mode), positions: number[] = [];
   fuzzyScore(input, text, positions);
-  appendMatches(appendChild(content, $('.search-result-title')), text, positions);
+  appendMatches(appendChild($content, $('.search-result-title')), text, positions);
   const names = locations
     .map(item => LanguageDescription.matchFilename(languages, item.path)?.name)
     .filter(name => name != null);

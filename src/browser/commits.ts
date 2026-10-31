@@ -29,11 +29,11 @@ interface Template extends CommitContent {
 }
 
 export class Commits extends Widget implements ItemRenderer<Item, Template> {
+  readonly $header: HTMLElement;
   readonly $container: HTMLElement;
 
   readonly scrollable: Scrollable<Item, Template>;
   readonly items: ReactiveArray<Item>;
-
   readonly offset$ = this._register(writable<number | undefined>(undefined)); // index = range.start + offset
 
   override async initialize(this: Writable<this>): Promise<void> {
@@ -55,7 +55,6 @@ export class Commits extends Widget implements ItemRenderer<Item, Template> {
       if (this.offset$.value != null) {
         const target = range.start + this.offset$.value;
         this.root.git.index$.set(clamp(target, 0, items.length - 1));
-        // this.scrollable.focus(target);
       }
     }));
 
@@ -146,11 +145,11 @@ function _renderTracks($tracks: HTMLElement, tracks: readonly (GraphTrack | null
   }
   const width = columns * 12;
   $tracks.style.width = `${width}px`;
-  const svg = appendChild($tracks, svgElement('svg'));
-  svg.setAttribute('width', String(width));
-  svg.setAttribute('height', String(ITEM_HEIGHT));
-  svg.setAttribute('viewBox', `0 0 ${width} ${ITEM_HEIGHT}`);
-  svg.setAttribute('fill', 'none');
+  const $svg = appendChild($tracks, svgElement('svg'));
+  $svg.setAttribute('width', String(width));
+  $svg.setAttribute('height', String(ITEM_HEIGHT));
+  $svg.setAttribute('viewBox', `0 0 ${width} ${ITEM_HEIGHT}`);
+  $svg.setAttribute('fill', 'none');
 
   const middle = ITEM_HEIGHT / 2, quarter = ITEM_HEIGHT / 4;
   for (const track of tracks) {
@@ -158,25 +157,25 @@ function _renderTracks($tracks: HTMLElement, tracks: readonly (GraphTrack | null
     const x = track.depth * 12 + 6;
     for (const edge of track.incoming) {
       const start = edge.column * 12 + 6;
-      const path = appendChild(svg, svgElement('path'));
-      path.setAttribute('d', `M${start} 0 C${start} ${quarter}, ${x} ${quarter}, ${x} ${middle}`);
-      path.setAttribute('stroke', `var(--track-${edge.column % MAX_TRACKS})`);
-      if (edge.dashed) path.setAttribute('stroke-dasharray', '4');
+      const $path = appendChild($svg, svgElement('path'));
+      $path.setAttribute('d', `M${start} 0 C${start} ${quarter}, ${x} ${quarter}, ${x} ${middle}`);
+      $path.setAttribute('stroke', `var(--track-${edge.column % MAX_TRACKS})`);
+      if (edge.dashed) $path.setAttribute('stroke-dasharray', '4');
     }
     for (const edge of track.outgoing) {
       const end = edge.column * 12 + 6;
-      const path = appendChild(svg, svgElement('path'));
-      path.setAttribute('d', `M${x} ${middle} C${x} ${middle + quarter}, ${end} ${middle + quarter}, ${end} ${ITEM_HEIGHT}`);
-      path.setAttribute('stroke', `var(--track-${edge.column % MAX_TRACKS})`);
-      if (edge.dashed) path.setAttribute('stroke-dasharray', '4');
+      const $path = appendChild($svg, svgElement('path'));
+      $path.setAttribute('d', `M${x} ${middle} C${x} ${middle + quarter}, ${end} ${middle + quarter}, ${end} ${ITEM_HEIGHT}`);
+      $path.setAttribute('stroke', `var(--track-${edge.column % MAX_TRACKS})`);
+      if (edge.dashed) $path.setAttribute('stroke-dasharray', '4');
     }
   }
   for (const track of tracks) {
     if (!track?.active) continue;
-    const circle = appendChild(svg, svgElement('circle'));
-    circle.setAttribute('cx', String(track.depth * 12 + 6));
-    circle.setAttribute('cy', String(ITEM_HEIGHT / 2));
-    circle.setAttribute('r', '4');
-    circle.setAttribute('fill', `var(--track-${track.depth % MAX_TRACKS})`);
+    const $circle = appendChild($svg, svgElement('circle'));
+    $circle.setAttribute('cx', String(track.depth * 12 + 6));
+    $circle.setAttribute('cy', String(ITEM_HEIGHT / 2));
+    $circle.setAttribute('r', '4');
+    $circle.setAttribute('fill', `var(--track-${track.depth % MAX_TRACKS})`);
   }
 }

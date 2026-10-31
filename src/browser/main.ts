@@ -16,7 +16,6 @@ import { Search } from './search';
 import { SnapshotIndex } from './symbol-index';
 import { bindKeys } from './keybindings';
 
-// Remove browser.js from HTML.
 document.querySelector('script')?.remove();
 
 class Main extends Disposable implements IMain {
@@ -69,7 +68,6 @@ class Main extends Disposable implements IMain {
     const $statusbar = appendChild(document.body, $('footer.statusbar'));
     this.dom = { $titlebar, $title, $content, $sidebar, $auxSidebar, $editors, $statusbar };
 
-    // Setup widgets.
     this.files = new Files($sidebar, this);
     this.editor = new Editor($editors, this);
     this.commits = new Commits($auxSidebar, this);
@@ -104,7 +102,6 @@ class Main extends Disposable implements IMain {
       'Ctrl+Shift+-,Ctrl+Shift+_': { when: canNavigate, run: () => this.editor.go(1) },
     }, true));
 
-    // Render.
     const viewport = window.visualViewport || window;
     this._register(listen(viewport as Window, 'resize', () => this.layout()));
     this.layout();

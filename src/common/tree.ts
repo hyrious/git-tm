@@ -123,7 +123,6 @@ function sortTree(tree: Tree<LsTreeElement>) {
 const collator = new Intl.Collator(undefined, { numeric: true });
 
 function compareTreeNode(a: TreeNode<LsTreeElement>, b: TreeNode<LsTreeElement>): number {
-  // Sort folders first.
   if (a.children.length > 0 && b.children.length === 0) return -1;
   if (a.children.length === 0 && b.children.length > 0) return 1;
 

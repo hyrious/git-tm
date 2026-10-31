@@ -39,9 +39,9 @@ export class Scrollable<Item, Template = HTMLDivElement> extends Disposable {
   readonly visibleRange$: Readable<Range>;
 
   /** Equals to `options.container`, used to track the visual size and scroll position. */
-  readonly dom: HTMLElement;
-  /** The direct child of `this.dom`, scrolls with its parent and holds absolutely positioned items. */
-  readonly content: HTMLDivElement;
+  readonly $dom: HTMLElement;
+  /** The direct child of `this.$dom`, scrolls with its parent and holds absolutely positioned items. */
+  readonly $content: HTMLDivElement;
 
   private static nextId = 0;
   private readonly id = `list-${Scrollable.nextId++}`;
@@ -67,17 +67,17 @@ export class Scrollable<Item, Template = HTMLDivElement> extends Disposable {
     const onClick = this.onClick = event<number>();
     const onDblClick = this.onDblClick = event<number>();
 
-    this.dom = options.container;
-    this.dom.tabIndex = 0;
-    this.dom.setAttribute('role', 'listbox');
-    this._register(bindKeys(this.dom, {
+    this.$dom = options.container;
+    this.$dom.tabIndex = 0;
+    this.$dom.setAttribute('role', 'listbox');
+    this._register(bindKeys(this.$dom, {
       'ArrowUp,ArrowDown': { repeat: true, run: e => this.onArrowKey(e) },
       'PageUp,PageDown': { repeat: true, run: e => this.onPageKey(e) },
-      'Escape': () => this.dom.blur(),
+      'Escape': () => this.$dom.blur(),
     }));
-    this.dom.style.cssText = 'overflow:hidden auto;contain:strict';
+    this.$dom.style.cssText = 'overflow:hidden auto;contain:strict';
     const getItemIndex = (e: MouseEvent): number | undefined => {
-      const dy = e.clientY - this.dom.getBoundingClientRect().top;
+      const dy = e.clientY - this.$dom.getBoundingClientRect().top;
       const itemHeight = options.itemHeight;
       const scrollTop = scrollTop$.value;
       const itemsCount = options.items$.value.length;
@@ -86,22 +86,22 @@ export class Scrollable<Item, Template = HTMLDivElement> extends Disposable {
         return itemIndex;
       }
     };
-    this._register(listen(this.dom, 'click', e => {
+    this._register(listen(this.$dom, 'click', e => {
       const itemIndex = getItemIndex(e);
       if (itemIndex != null) {
         this.focus(itemIndex);
         send(onClick, itemIndex);
       }
     }));
-    this._register(listen(this.dom, 'dblclick', e => {
+    this._register(listen(this.$dom, 'dblclick', e => {
       const itemIndex = getItemIndex(e);
       if (itemIndex != null) send(onDblClick, itemIndex);
     }));
 
-    this.content = appendChild(this.dom, element('div'));
-    this._register(new Scrollbars(this.dom, this.content));
+    this.$content = appendChild(this.$dom, element('div'));
+    this._register(new Scrollbars(this.$dom, this.$content));
     this._register(contentHeight$.subscribe(() => scheduleInNextFrame(() => {
-      this.content.style.height = `${contentHeight$.value}px`;
+      this.$content.style.height = `${contentHeight$.value}px`;
     })));
 
     const pool = this._register(new Pool<Template & HTMLElement>(() => {
@@ -175,7 +175,7 @@ export class Scrollable<Item, Template = HTMLDivElement> extends Disposable {
         children[i] = { data: item, dom };
         this._itemEffects.flush(item);
         this._itemEffects.set(item, options.renderer.renderItem(dom, item));
-        appendChild(this.content, dom);
+        appendChild(this.$content, dom);
       }
 
       this.renderFocus();
@@ -217,7 +217,7 @@ export class Scrollable<Item, Template = HTMLDivElement> extends Disposable {
   }
 
   focus(index: number): void {
-    this.dom.focus({ preventScroll: true });
+    this.$dom.focus({ preventScroll: true });
     const previous = this.focused;
     this.setFocus(index);
     if (this.focused != null) {
@@ -229,32 +229,32 @@ export class Scrollable<Item, Template = HTMLDivElement> extends Disposable {
   reveal(index: number): void {
     const top = index * this.itemHeight;
     const bottom = top + this.itemHeight;
-    if (top < this.dom.scrollTop) this.dom.scrollTop = top;
-    else if (bottom > this.dom.scrollTop + this.dom.clientHeight) {
-      this.dom.scrollTop = bottom - this.dom.clientHeight;
+    if (top < this.$dom.scrollTop) this.$dom.scrollTop = top;
+    else if (bottom > this.$dom.scrollTop + this.$dom.clientHeight) {
+      this.$dom.scrollTop = bottom - this.$dom.clientHeight;
     }
   }
 
   private renderFocus(): void {
     let active: string | undefined;
-    for (const child of this.content.children) {
+    for (const child of this.$content.children) {
       const row = child as HTMLElement;
       const focused = Number(row.dataset.index) === this.focused;
       row.classList.toggle('focused', focused);
       row.setAttribute('aria-selected', String(focused));
       if (focused) active = row.id;
     }
-    if (active) this.dom.setAttribute('aria-activedescendant', active);
-    else this.dom.removeAttribute('aria-activedescendant');
+    if (active) this.$dom.setAttribute('aria-activedescendant', active);
+    else this.$dom.removeAttribute('aria-activedescendant');
   }
 
   scrollTo(index: number): void {
-    this.dom.scrollTo({ top: index * this.itemHeight });
+    this.$dom.scrollTo({ top: index * this.itemHeight });
   }
 
   override dispose() {
     super.dispose();
-    detach(this.content);
-    this.content.textContent = '';
+    detach(this.$content);
+    this.$content.textContent = '';
   }
 }

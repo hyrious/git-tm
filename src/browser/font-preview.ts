@@ -70,10 +70,10 @@ export class FontPreview extends Disposable {
   }
 
   private addLine(text: string, size: number, family: string): void {
-    const line = appendChild(this.sample, $('.font-sample-line'));
-    line.style.fontSize = `${size}px`;
-    if (family) line.style.fontFamily = family;
-    line.textContent = text;
+    const $line = appendChild(this.sample, $('.font-sample-line'));
+    $line.style.fontSize = `${size}px`;
+    if (family) $line.style.fontFamily = family;
+    $line.textContent = text;
   }
 
   override dispose(): void {

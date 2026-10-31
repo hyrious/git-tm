@@ -3,6 +3,7 @@ import { appendChild, listen } from '@wopjs/dom';
 import { $ } from './dom';
 import { Scrollbars } from './scrollbars';
 import { MenuNavigation } from './menu-navigation';
+import { Popover } from './popover';
 import { bindKeys } from './keybindings';
 
 export function imageType(path: string): string | undefined {
@@ -29,6 +30,7 @@ export class ImagePreview extends Disposable {
   private readonly menu = $('.image-zoom-menu');
   private readonly dimensions = $('span.image-dimensions');
   private readonly items: HTMLElement[] = [];
+  private readonly popover: Popover;
 
   private mode = 'fit';
   private scale = 1;
@@ -47,32 +49,33 @@ export class ImagePreview extends Disposable {
     this.menu.tabIndex = -1;
     this.menu.setAttribute('role', 'menu');
     this.menu.ariaLabel = 'Image zoom';
-    const content = appendChild(this.menu, $('.menu-content'));
+    const $content = appendChild(this.menu, $('.menu-content'));
     for (const mode of ['fit', ...scales.map(String)]) {
-      const item = appendChild(content, $('.menu-item'));
-      item.textContent = mode === 'fit' ? 'Fit' : `${Number(mode) * 100}%`;
-      item.dataset.mode = mode;
-      item.tabIndex = -1;
-      item.setAttribute('role', 'menuitemradio');
-      item.setAttribute('aria-checked', String(mode === this.mode));
-      this.items.push(item);
-      this._register(listen(item, 'click', () => this.select(item)));
+      const $item = appendChild($content, $('.menu-item'));
+      $item.textContent = mode === 'fit' ? 'Fit' : `${Number(mode) * 100}%`;
+      $item.dataset.mode = mode;
+      $item.tabIndex = -1;
+      $item.setAttribute('role', 'menuitemradio');
+      $item.setAttribute('aria-checked', String(mode === this.mode));
+      this.items.push($item);
+      this._register(listen($item, 'click', () => this.select($item)));
     }
-    this._register(new Scrollbars(content));
+    this._register(new Scrollbars($content));
     this._register(new MenuNavigation(this.menu, this.items, item => item.textContent || '', () => { }));
+    this.popover = this._register(new Popover({
+      $button: this.zoom,
+      $menu: this.menu,
+      shortcut: 'z',
+      focus: () => this.items.find(item => item.dataset.mode === this.mode),
+    }));
     this._register(bindKeys(this.menu, {
       'Enter,Space': () => {
         const item = document.activeElement;
         if (item instanceof HTMLElement && this.items.includes(item)) this.select(item);
       },
-      'Escape,z': () => { this.closeMenu(); this.zoom.focus(); },
     }, true));
-    this._register(listen(this.zoom, 'click', e => {
-      e.preventDefault();
-      this.toggleMenu();
-    }));
-    const host = appendChild(this.element, $('.image-scroll'));
-    host.append(this.viewport);
+    const $host = appendChild(this.element, $('.image-scroll'));
+    $host.append(this.viewport);
     this.viewport.tabIndex = 0;
     this.viewport.ariaLabel = 'Image preview';
     this.viewport.append(this.canvas);
@@ -138,15 +141,11 @@ export class ImagePreview extends Disposable {
   }
 
   toggleMenu(): void {
-    if (this.menu.matches(':popover-open')) this.closeMenu();
-    else {
-      this.menu.showPopover();
-      this.items.find(item => item.dataset.mode === this.mode)?.focus();
-    }
+    this.popover.toggle();
   }
 
   closeMenu(): void {
-    if (this.menu.matches(':popover-open')) this.menu.hidePopover();
+    this.popover.close();
   }
 
   override dispose(): void {
