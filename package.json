@@ -1,7 +1,7 @@
 {
   "name": "@hyrious/git-tm",
   "type": "module",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Git time-machine.",
   "author": "hyrious <hyrious@outlook.com>",
   "license": "MIT",
