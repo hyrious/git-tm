@@ -97,6 +97,7 @@ class Main extends Disposable implements IMain {
       'e': { when: canNavigate, run: () => { this.status.closeMenus(); this.files.focus(); } },
       'c': { when: canNavigate, run: () => { this.status.closeMenus(); this.commits.focus(); } },
       'v': { when: canNavigate, run: () => { this.status.closeMenus(); this.editor.focus(); } },
+      'z': { when: canNavigate, run: () => this.editor.image?.toggleMenu() },
     }));
     this._register(bindKeys(window, {
       'Ctrl+-': { when: canNavigate, run: () => this.editor.go(-1) },

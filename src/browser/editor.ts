@@ -8,17 +8,18 @@ import { Compartment, EditorState, StateEffect, type Extension } from '@codemirr
 import { Decoration, EditorView, ViewPlugin, drawSelection, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers } from '@codemirror/view';
 import { defaultKeymap } from '@codemirror/commands';
 import { bracketMatching, foldGutter, foldKeymap, LanguageDescription } from '@codemirror/language';
-import { languages } from '@codemirror/language-data';
+import { languages } from './languages';
 import { unifiedMergeView, uncollapseUnchanged } from '@codemirror/merge';
 import { FileSource } from '../common/symbols';
 import { decodeText } from '../common/base';
-import { SnapshotKind, snapshotId } from '../common/git';
+import { RefType, SnapshotKind, snapshotId } from '../common/git';
 import { $, onCustomEvent } from './dom';
 import { modernDark, modernLight } from './editor-theme';
 import { Widget } from './widget';
 import { Scrollbars } from './scrollbars';
 import { bindKeys } from './keybindings';
 import { ImagePreview, imageType } from './image-preview';
+import { FontPreview, fontType } from './font-preview';
 import { NavigationHistory, formatLocation, parseLocation, positionAt, offsetAt, type NavigationEntry } from './navigation';
 
 export const enum EditorTargetKind {
@@ -87,18 +88,21 @@ export class Editor extends Widget {
   previewSession: EditorPreview | undefined;
 
   displayedTarget: EditorTarget | undefined;
+  failed = false;
   path: string | undefined;
   document: EditorDocument | undefined;
   editor: EditorView | undefined;
   image: ImagePreview | undefined;
+  font: FontPreview | undefined;
 
   override initialize(this: Writable<this>): void {
     this.$header = appendChild(this.parent, $('.editors-header'));
     this.$body = appendChild(this.parent, $('.editor-body'));
     this.$body.tabIndex = -1;
-    this.showMessage('Select a file to view its contents.');
+    this.showMessage('Select a file to view its contents.', false);
     this._register(() => this.editor?.destroy());
     this._register(() => this.image?.dispose());
+    this._register(() => this.font?.dispose());
     this._register(listen(this.colorScheme, 'change', () => {
       this.editor?.dispatch({ effects: this.theme.reconfigure(this.colorScheme.matches ? modernDark : modernLight) });
     }));
@@ -145,7 +149,8 @@ export class Editor extends Widget {
       const path = target?.kind === EditorTargetKind.Diff ? target.file.newPath : target?.path;
       if (!target) {
         this.setHeader(undefined);
-        this.showMessage('Select a file to view its contents.');
+        this.showMessage('Select a file to view its contents.', false);
+        this.updateURL();
         return;
       }
       if (target.kind === EditorTargetKind.File && target.source === FileSource.Snapshot && !target.preview) {
@@ -172,27 +177,22 @@ export class Editor extends Widget {
           if (target$.disposed || request !== this.navigationRequest) return;
           this.setHeader(target);
           const mime = target.kind === EditorTargetKind.File ? imageType(target.path) : undefined;
-          if (target.kind === EditorTargetKind.File && mime) {
+          const font = target.kind === EditorTargetKind.File && !mime ? fontType(target.path) : undefined;
+          if (target.kind === EditorTargetKind.File && (mime || font)) {
             const focused = this.$body.contains(document.activeElement);
             this.clear();
-            this.image = new ImagePreview(this.$body, this.root.status.$image, contents[0].bytes, mime, target.path, () => this.showMessage('Could not load image.'));
+            if (mime) this.image = new ImagePreview(this.$body, this.root.status.$image, contents[0].bytes, mime, target.path, () => this.showMessage('Could not load image.'));
+            else this.font = new FontPreview(this.$body, contents[0].bytes, font!, target.path, () => this.showMessage('Could not load font.'));
             this.path = path;
-            if (!target.preview) this.writeURL('');
+            if (!target.preview) this.commit(target.record ?? false);
             if (focused) this.focus();
             return;
           }
           const binaryDiff = target.kind === EditorTargetKind.Diff && target.file.insertions == null;
           const binaryContents = contents.some(({ bytes }) => bytes.subarray(0, 8000).includes(0));
           if (binaryDiff || binaryContents) {
-            this.showMessage('File is binary.');
-            if (!target.preview) {
-              if (target.kind === EditorTargetKind.Diff) {
-                this.remember(target.record ?? false);
-                this.updateURL();
-              } else {
-                this.writeURL('');
-              }
-            }
+            this.showMessage('File is binary.', false);
+            if (!target.preview) this.commit(target.record ?? false);
             return;
           }
           const docs = contents.map(file => decodeText(file.bytes));
@@ -237,6 +237,7 @@ export class Editor extends Widget {
           if (!target$.disposed && request === this.navigationRequest) {
             this.setHeader(target);
             this.showMessage(target.kind === EditorTargetKind.Diff ? 'Could not read diff.' : 'Could not read file.');
+            if (!target.preview) this.updateURL();
           }
         }
       })();
@@ -304,7 +305,10 @@ export class Editor extends Widget {
         }));
         this.focus();
       } catch {
-        if (!this.target$.disposed && this.target$.value === target) this.showMessage('Could not read diff.');
+        if (!this.target$.disposed && this.target$.value === target) {
+          this.showMessage('Could not read diff.');
+          this.updateURL();
+        }
       }
     })();
   }
@@ -360,15 +364,12 @@ export class Editor extends Widget {
   }
 
   capture(): NavigationEntry | undefined {
-    const document = this.document, editor = this.editor;
-    const target = this.displayedTarget;
-    if (target?.kind === EditorTargetKind.Diff) {
-      let anchor = { line: 1, column: 1 }, head = { line: 1, column: 1 };
-      if (editor) {
-        const selection = editor.state.selection.main;
-        anchor = positionAt(editor.state.doc, selection.anchor);
-        head = positionAt(editor.state.doc, selection.head);
-      }
+    const document = this.document, editor = this.editor, target = this.displayedTarget;
+    if (!target) return;
+    const selection = editor?.state.selection.main;
+    const anchor = selection && editor ? positionAt(editor.state.doc, selection.anchor) : { line: 1, column: 1 };
+    const head = selection && editor ? positionAt(editor.state.doc, selection.head) : anchor;
+    if (target.kind === EditorTargetKind.Diff) {
       return {
         location: {
           source: FileSource.Snapshot,
@@ -385,19 +386,26 @@ export class Editor extends Widget {
         saved: undefined,
       };
     }
-    if (!document || !editor) return;
-    const { anchor, head } = editor.state.selection.main;
+    if (!document || !selection) {
+      return {
+        location: {
+          source: target.source, path: target.path, snapshot: snapshotId(target.snapshot),
+          anchor, head,
+        },
+        saved: undefined,
+      };
+    }
     return {
       location: {
         ...document.file, snapshot: snapshotId(document.snapshot),
-        anchor: positionAt(editor.state.doc, anchor), head: positionAt(editor.state.doc, head),
+        anchor, head,
       },
-      saved: { version: document.version, selection: { anchor, head }, scroll: editor.scrollSnapshot() },
+      saved: { version: document.version, selection: { anchor: selection.anchor, head: selection.head }, scroll: editor!.scrollSnapshot() },
     };
   }
 
   remember(visit: boolean): void {
-    if (this.previewing || this.restoring) return;
+    if (this.previewing || this.restoring || this.failed) return;
     const entry = this.capture();
     if (entry) {
       if (visit) this.history.visit(entry);
@@ -439,6 +447,7 @@ export class Editor extends Widget {
       this.history.leave();
       this.target$.set(undefined);
       this.showMessage('Invalid file location.');
+      this.updateURL();
       this.updateNavigation();
     }
   }
@@ -488,6 +497,7 @@ export class Editor extends Widget {
         this.history.leave();
         this.updateNavigation();
         this.showMessage(error instanceof Error ? error.message : 'Could not restore location.');
+        this.updateURL();
       }
     } finally {
       this.changingSnapshot = false;
@@ -504,8 +514,11 @@ export class Editor extends Widget {
 
   updateURL(): void {
     if (this.previewing || this.restoring) return;
-    const location = this.capture()?.location;
-    if (!location) return;
+    const location = this.failed ? undefined : this.capture()?.location;
+    if (!location) {
+      if (this.failed) this.writeURL('');
+      return;
+    }
     const request = ++this.urlRequest;
     const shorten = (ref: string) => this.root.git.resolveRevision(ref).then(revision => revision.shortHash).catch(() => ref);
     void Promise.all([
@@ -519,6 +532,11 @@ export class Editor extends Widget {
         }));
       }
     });
+  }
+
+  commit(record: boolean): void {
+    this.remember(record);
+    this.updateURL();
   }
 
   writeURL(hash: string): void {
@@ -570,16 +588,46 @@ export class Editor extends Widget {
 
   setHeader(target: EditorTarget | undefined): void {
     this.displayedTarget = target;
+    this.failed = false;
     const path = target?.kind === EditorTargetKind.Diff ? target.file.newPath : target?.path;
     this.root.setTitle(path?.split('/').pop());
+    this.$header.replaceChildren();
     if (target?.kind === EditorTargetKind.Diff) {
-      const base = target.range.base.slice(0, 7) || 'Working Directory';
-      const revision = target.range.target?.slice(0, 7) ?? 'Working Directory';
-      this.$header.textContent = `${target.file.oldPath} → ${path} — ${base} → ${revision}`;
+      const { oldPath, newPath, status } = target.file;
+      const renamed = oldPath !== newPath && status !== 'A' && status !== 'D';
+      const label = renamed ? `${oldPath} → ${newPath}` : newPath || oldPath;
+      const range = this.formatRange(target.range);
+      const $path = $('span.header-path');
+      $path.textContent = label;
+      const $range = $('span.header-range');
+      $range.textContent = range;
+      this.$header.append($path, $range);
     } else {
       this.$header.textContent = path ?? null;
     }
     this.$header.title = this.$header.textContent ?? '';
+  }
+
+  formatRange(range: DiffRange): string {
+    const base = range.base ? this.refLabel(range.base) : 'working tree';
+    const target = range.target ? this.refLabel(range.target) : 'working tree';
+    // `working tree` on either side is implied by the diff view, keep only the commit side.
+    if (!range.target) return base === 'working tree' ? '' : base;
+    if (!range.base) return target;
+    return `${base}..${target}`;
+  }
+
+  refLabel(hash: string): string {
+    const ref = this.root.git.refs.find(ref => ref.type !== RefType.RemoteHead && ref.name && ref.commit === hash);
+    if (ref?.name) return ref.name;
+    const snapshot = this.root.git.snapshot$.value;
+    if (snapshot?.kind === SnapshotKind.Commit && snapshot.hash === hash) {
+      const name = snapshot.refNames
+        .map(name => name.startsWith('HEAD -> ') ? name.slice(8) : name.startsWith('tag: ') ? name.slice(5) : name)
+        .find(name => !name.endsWith('/HEAD'));
+      if (name) return name;
+    }
+    return hash.slice(0, 7);
   }
 
   clear(): void {
@@ -589,15 +637,18 @@ export class Editor extends Widget {
     this.editor = undefined;
     this.image?.dispose();
     this.image = undefined;
+    this.font?.dispose();
+    this.font = undefined;
     this.path = undefined;
     this.document = undefined;
     this.$body.replaceChildren();
     this.$body.classList.remove('editor-message');
   }
 
-  showMessage(message: string): void {
+  showMessage(message: string, error = true): void {
     const focused = this.$body.contains(document.activeElement);
     this.clear();
+    this.failed = error;
     this.$body.classList.add('editor-message');
     this.$body.textContent = message;
     if (focused) this.focus();

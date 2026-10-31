@@ -3,7 +3,7 @@ import type { FileSymbols, SymbolLocation } from '../common/symbols';
 import type { Git } from './git';
 
 import { LanguageDescription } from '@codemirror/language';
-import { languages } from '@codemirror/language-data';
+import { languages } from './languages';
 import { EditorState } from '@codemirror/state';
 import { writable } from '@embra/reactivity';
 import { Disposable } from '../common/disposable';

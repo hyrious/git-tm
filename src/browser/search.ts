@@ -6,7 +6,7 @@ import type { TextMatch } from './search-match';
 
 import { appendChild, listen } from '@wopjs/dom';
 import { LanguageDescription } from '@codemirror/language';
-import { languages } from '@codemirror/language-data';
+import { languages } from './languages';
 import { clamp } from '../common/base';
 import { SnapshotKind } from '../common/git';
 import { FileSource, SymbolAction, supportsSymbols } from '../common/symbols';

@@ -30,6 +30,7 @@ export class Help extends Widget {
         ['E', 'Focus files'],
         ['C', 'Focus commits'],
         ['V', 'Focus editor'],
+        ['Z', 'Change image zoom'],
       ]],
       ['Search', [
         [`${mod} + F`, 'Find in file'],

@@ -21,9 +21,11 @@ import npm from '@iconify-icons/file-icons/npm';
 import pnpm from '@iconify-icons/file-icons/pnpm';
 import docker from '@iconify-icons/file-icons/docker';
 import image from '@iconify-icons/file-icons/image';
+import font from '@iconify-icons/file-icons/font';
 import config from '@iconify-icons/file-icons/config';
 import editorconfig from '@iconify-icons/file-icons/editorconfig';
 
+import { moonbit, nushell } from './file-icon-data';
 import { ic } from './icon';
 
 interface FileIcon {
@@ -53,8 +55,11 @@ const icons: Record<string, FileIcon> = {
   pnpm: { icon: pnpm, color: 'yellow' },
   docker: { icon: docker, color: 'blue' },
   image: { icon: image, color: 'purple' },
+  font: { icon: font, color: 'orange' },
   config: { icon: config, color: 'gray' },
   editorconfig: { icon: editorconfig, color: 'gray' },
+  moonbit: { icon: moonbit, color: 'gray' },
+  nushell: { icon: nushell, color: 'green' },
 };
 
 const filenames: Record<string, string> = {
@@ -110,6 +115,9 @@ const extensions: Record<string, string> = {
   hxx: 'cpp',
   java: 'java',
   php: 'php',
+  mbt: 'moonbit',
+  mbti: 'moonbit',
+  nu: 'nushell',
   dockerfile: 'docker',
   png: 'image',
   jpg: 'image',
@@ -121,6 +129,12 @@ const extensions: Record<string, string> = {
   svg: 'image',
   bmp: 'image',
   tiff: 'image',
+  woff: 'font',
+  woff2: 'font',
+  ttf: 'font',
+  otf: 'font',
+  ttc: 'font',
+  otc: 'font',
   ini: 'config',
   conf: 'config',
   cfg: 'config',

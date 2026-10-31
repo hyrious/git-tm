@@ -2,7 +2,7 @@ import type { EditorState } from '@codemirror/state';
 import type { FileReference, SymbolLocation } from '../common/symbols';
 
 import { DocInput, LanguageDescription, StreamLanguage, syntaxTree, syntaxTreeAvailable } from '@codemirror/language';
-import { languages } from '@codemirror/language-data';
+import { languages } from './languages';
 import { getStyleTags, Tag, tags } from '@lezer/highlight';
 
 /** Extract declarations identified by the language's highlighting metadata. */

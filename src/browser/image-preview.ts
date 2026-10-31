@@ -65,15 +65,11 @@ export class ImagePreview extends Disposable {
         const item = document.activeElement;
         if (item instanceof HTMLElement && this.items.includes(item)) this.select(item);
       },
-      'Escape': () => { this.closeMenu(); this.zoom.focus(); },
+      'Escape,z': () => { this.closeMenu(); this.zoom.focus(); },
     }, true));
     this._register(listen(this.zoom, 'click', e => {
       e.preventDefault();
-      if (this.menu.matches(':popover-open')) this.closeMenu();
-      else {
-        this.menu.showPopover();
-        this.items.find(item => item.dataset.mode === this.mode)?.focus();
-      }
+      this.toggleMenu();
     }));
     const host = appendChild(this.element, $('.image-scroll'));
     host.append(this.viewport);
@@ -139,6 +135,14 @@ export class ImagePreview extends Disposable {
     this.layout();
     this.closeMenu();
     this.zoom.focus();
+  }
+
+  toggleMenu(): void {
+    if (this.menu.matches(':popover-open')) this.closeMenu();
+    else {
+      this.menu.showPopover();
+      this.items.find(item => item.dataset.mode === this.mode)?.focus();
+    }
   }
 
   closeMenu(): void {
