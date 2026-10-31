@@ -584,7 +584,7 @@ kbd {
   background: var(--section);
   color: var(--foreground);
   box-shadow: 0 1px 0 var(--dim);
-  font: 11px/16px Menlo, Monaco, Consolas, monospace;
+  font: 11px/16px Menlo, Monaco, "Cascadia Code", Consolas, monospace;
   text-align: center;
   vertical-align: baseline;
 }

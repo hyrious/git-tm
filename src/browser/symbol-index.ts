@@ -8,6 +8,7 @@ import { EditorState } from '@codemirror/state';
 import { writable } from '@embra/reactivity';
 import { Disposable } from '../common/disposable';
 import { FileSource, SymbolAction, supportsSymbols } from '../common/symbols';
+import { decodeText } from '../common/base';
 import { syntaxSymbols } from './syntax-symbols';
 
 export class SymbolIndex {
@@ -46,7 +47,6 @@ export class SymbolIndex {
     const pending = paths.filter(path => !supportsSymbols(path) && LanguageDescription.matchFilename(languages, path));
     let completed = paths.length - pending.length;
     progress(paths.length ? Math.floor(completed * 100 / paths.length) : 100);
-    const decoder = new TextDecoder();
     for (const path of pending) {
       if (!active()) return;
       const file = { source: FileSource.Snapshot, path };
@@ -54,7 +54,7 @@ export class SymbolIndex {
         const contents = await git.contents(file, snapshot);
         if (!active()) return;
         if (contents.bytes.subarray(0, 8000).includes(0)) continue;
-        const state = EditorState.create({ doc: decoder.decode(contents.bytes) });
+        const state = EditorState.create({ doc: decodeText(contents.bytes) });
         const locations = await syntaxSymbols(file, state, contents.version, active);
         if (!active()) return;
         locations.sort(compareSymbolLocation);

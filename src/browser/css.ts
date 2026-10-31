@@ -94,7 +94,7 @@ function getMonoFontFamily(): string {
   if (/Mac/.test(navigator.platform)) {
     return 'Menlo, Monaco, "Courier New", monospace';
   } else if (/Win/.test(navigator.platform)) {
-    return 'Consolas, "Courier New", monospace';
+    return '"Cascadia Code", Consolas, "Courier New", monospace';
   } else {
     return '"Droid Sans Mono", "monospace", monospace';
   }

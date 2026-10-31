@@ -10,6 +10,7 @@ import { languages } from '@codemirror/language-data';
 import { clamp } from '../common/base';
 import { SnapshotKind } from '../common/git';
 import { FileSource, SymbolAction, supportsSymbols } from '../common/symbols';
+import { decodeText } from '../common/base';
 import { syntaxSymbols } from './syntax-symbols';
 import { compareSymbolLocation, compareSymbolPriority } from './symbol-index';
 import { $, onCustomEvent } from './dom';
@@ -609,7 +610,7 @@ export class Search extends Widget {
           let cached = session.texts.get(path);
           if (!session.texts.has(path)) {
             cached = this.root.git.blob(path, snapshot).then(bytes => {
-              const text = bytes.subarray(0, 8000).includes(0) ? undefined : new TextDecoder().decode(bytes);
+              const text = bytes.subarray(0, 8000).includes(0) ? undefined : decodeText(bytes);
               session.texts.set(path, text);
               return text;
             });

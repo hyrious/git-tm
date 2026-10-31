@@ -11,6 +11,7 @@ import { bracketMatching, foldGutter, foldKeymap, LanguageDescription } from '@c
 import { languages } from '@codemirror/language-data';
 import { unifiedMergeView, uncollapseUnchanged } from '@codemirror/merge';
 import { FileSource } from '../common/symbols';
+import { decodeText } from '../common/base';
 import { SnapshotKind, snapshotId } from '../common/git';
 import { $, onCustomEvent } from './dom';
 import { modernDark, modernLight } from './editor-theme';
@@ -194,8 +195,7 @@ export class Editor extends Widget {
             }
             return;
           }
-          const decoder = new TextDecoder();
-          const docs = contents.map(file => decoder.decode(file.bytes));
+          const docs = contents.map(file => decodeText(file.bytes));
           const focused = this.$body.contains(document.activeElement);
           this.clear();
           if (target.kind === EditorTargetKind.Diff) {
@@ -530,7 +530,7 @@ export class Editor extends Widget {
     if (!document || !editor) return;
     const contents = await this.root.git.contents(document.file, document.snapshot);
     if (this.document !== document || this.editor !== editor) return;
-    const text = new TextDecoder().decode(contents.bytes);
+    const text = decodeText(contents.bytes);
     this.document = { ...document, version: contents.version };
     editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: text } });
   }

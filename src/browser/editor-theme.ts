@@ -17,7 +17,7 @@ function modern(dark: boolean): Extension {
     '&.cm-focused': { outline: 'none' },
     '.cm-content': { caretColor: foreground, cursor: 'text' },
     '.cm-content:focus': { outline: 'none' },
-    '.cm-scroller': { fontFamily: 'Menlo, Monaco, Consolas, monospace', lineHeight: '1.5' },
+    '.cm-scroller': { fontFamily: 'Menlo, Monaco, "Cascadia Code", Consolas, monospace', lineHeight: '1.5' },
     '.cm-cursor, .cm-dropCursor': { borderLeftColor: foreground },
     '.cm-selectionBackground': { backgroundColor: dark ? '#3A3D41' : '#E5EBF1' },
     '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-content ::selection': { backgroundColor: selection },

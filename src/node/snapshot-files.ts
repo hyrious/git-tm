@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { Repository } from './repository';
 import { FileSource, supportsSymbols } from '../common/symbols';
+import { decodeText } from '../common/base';
 
 interface CachedFile {
   readonly bytes: Buffer;
@@ -83,7 +84,7 @@ export class SnapshotFiles {
           if (header[1] !== 'blob') throw new Error('Could not read snapshot');
           const size = Number(header[2]);
           const bytes = Buffer.from(data.subarray(end + 1, end + 1 + size));
-          this.files.set(file, { bytes, text: decode(bytes), version: entry.object });
+          this.files.set(file, { bytes, text: decodeText(bytes), version: entry.object });
           offset = end + 1 + size + 1;
         }
       }
@@ -97,6 +98,21 @@ export class SnapshotFiles {
 
   private inside(file: string): boolean {
     return file === this.repo.root || file.startsWith(this.repo.root + path.sep);
+  }
+
+  /** A path is visible when the snapshot tracks it or it is an allowed dependency. */
+  private canAccess(file: string): boolean {
+    file = normalize(file);
+    return this.entries.has(file) || this.directories.has(file) || this.diskAllowed(file);
+  }
+
+  private diskEntries(dir: string): fs.Dirent[] {
+    if (!this.diskAllowed(dir)) return [];
+    try {
+      return fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return [];
+    }
   }
 
   private diskAllowed(file: string): boolean {
@@ -147,7 +163,7 @@ export class SnapshotFiles {
     }
     if (previous?.bytes.equals(bytes)) return previous;
     const version = entry && this.ref ? entry.object : createHash('sha256').update(bytes).digest('hex');
-    const result = { bytes, text: decode(bytes), version };
+    const result = { bytes, text: decodeText(bytes), version };
     cache.set(file, result);
     if (previous || entry && !this.ref) this.revision++;
     return result;
@@ -176,19 +192,17 @@ export class SnapshotFiles {
   }
   readFile = (file: string): string | undefined => this.read(file)?.text;
   fileExists = (file: string): boolean => {
-    file = this.realpath(file);
-    return this.entries.get(file)?.type === 'blob' || this.diskAllowed(file) && fs.existsSync(file) && fs.statSync(file).isFile();
+    // Package resolution probes directories such as `node_modules/@scope` through `fileExists`.
+    return this.canAccess(file) && fs.existsSync(file);
   };
   directoryExists = (dir: string): boolean => {
-    dir = this.realpath(dir);
-    return this.directories.has(dir) || this.diskAllowed(dir) && fs.existsSync(dir) && fs.statSync(dir).isDirectory();
+    return this.canAccess(dir) && fs.existsSync(dir) && fs.statSync(dir).isDirectory();
   };
   realpath = (file: string): string => {
-    if (this.diskAllowed(file)) {
+    if (this.canAccess(file)) {
       try {
-        const resolved = fs.realpathSync(file);
-        // Workspace dependencies must resolve to historical sources too.
-        if (this.inside(resolved) && !this.diskAllowed(resolved)) return resolved;
+        // Dependencies may be symlinked outside the repository; resolve them whenever they are visible.
+        return fs.realpathSync(file);
       } catch { }
     }
     return file;
@@ -196,14 +210,14 @@ export class SnapshotFiles {
   getDirectories = (dir: string): string[] => {
     dir = this.realpath(dir);
     if (!this.directoryExists(dir)) return [];
-    if (this.diskAllowed(dir)) {
-      return fs.readdirSync(dir, { withFileTypes: true })
-        .filter(entry => entry.isDirectory() || entry.isSymbolicLink())
-        .map(entry => entry.name);
+    const children = new Set<string>();
+    for (const child of this.directories) {
+      if (path.dirname(child) === dir && child !== dir) children.add(path.basename(child));
     }
-    return [...this.directories]
-      .filter(child => path.dirname(child) === dir && child !== dir)
-      .map(child => path.basename(child));
+    for (const entry of this.diskEntries(dir)) {
+      if (entry.isDirectory()) children.add(entry.name);
+    }
+    return [...children];
   };
 
   readDirectory = (
@@ -223,7 +237,12 @@ export class SnapshotFiles {
     const matches = (file: string, patterns: readonly string[]) => {
       return patterns.some(pattern => path.matchesGlob(file, pattern));
     };
-    return [...this.entries.keys()].filter(file => {
+    if (!this.directoryExists(dir)) return [];
+    const files = new Set(this.entries.keys());
+    for (const entry of this.diskEntries(dir)) {
+      if (entry.isFile()) files.add(path.join(dir, entry.name));
+    }
+    return [...files].filter(file => {
       const relative = path.relative(dir, file);
       if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) return false;
       if (depth != null && relative.split(path.sep).length > depth) return false;
@@ -233,6 +252,7 @@ export class SnapshotFiles {
   };
 }
 
-function decode(bytes: Uint8Array): string {
-  return new TextDecoder().decode(bytes).replace(/\r\n?/g, '\n');
+/** Snapshot keys always use the platform separator, while hosts may pass either one. */
+function normalize(file: string): string {
+  return path.sep === '\\' ? file.replace(/\//g, '\\') : file.replace(/\\/g, '/');
 }
